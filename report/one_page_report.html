@@ -32,97 +32,86 @@
 </head>
 <body>
 <h1>Portugal's air connectivity, 2016-2026</h1>
-<p class="sub">The European route network and the passengers who use it: a lakehouse on Apache Spark and Databricks Free Edition</p>
-<p class="meta">Analyzing Big Data 2026-2027 &nbsp;|&nbsp; NOVA IMS &nbsp;|&nbsp; Group project &nbsp;|&nbsp; <i>Group XX: student names and numbers</i></p>
+<p class="sub">A small lakehouse on Apache Spark and Databricks Free Edition</p>
+<p class="meta">Analyzing Big Data 2026-2027 &nbsp;|&nbsp; NOVA IMS &nbsp;|&nbsp; Project &nbsp;|&nbsp; <i>Student name and number</i></p>
 <div class="rule"></div>
 
 <div class="kpis">
-  <div class="kpi"><b>1.37 million</b><span>itineraries of up to two stops enumerated from the Portuguese airports</span></div>
-  <div class="kpi"><b>106 &rarr; 562</b><span>airports reached from Lisbon in 2024: direct, and within one stop (94% of the network)</span></div>
-  <div class="kpi"><b>67.2 million</b><span>air passengers in Portugal in 2025 (+22% on 2019, 7th of 33 countries)</span></div>
-  <div class="kpi"><b>85.7%</b><span>of the seats occupied in 2024; about 72% on the domestic trunk routes</span></div>
-  <div class="kpi"><b>4.4 &times;</b><span>Faro: passengers of the busiest month against the quietest</span></div>
+  <div class="kpi"><b>106 &rarr; 562</b><span>airports reached from Lisbon: direct, and with one stop (94% of the network)</span></div>
+  <div class="kpi"><b>67.2 million</b><span>air passengers in Portugal in 2025, 22% more than in 2019</span></div>
+  <div class="kpi"><b>72%</b><span>of the seats occupied on Lisbon - Porto and Lisbon - Faro; 80% to 89% on the other busiest routes</span></div>
+  <div class="kpi"><b>4.4 &times;</b><span>Faro: passengers in July compared with January</span></div>
 </div>
 
 <div class="cols">
 <div class="col">
-  <h2>Problem and motivation</h2>
-  <p>Tourism, the islands and the diaspora make air links strategic for Portugal. Airport operators, tourism boards and
-  airline planners need to know <b>how well connected each Portuguese airport is</b>, <b>which hubs that connectivity
-  relies on</b> and <b>where the passengers are and where demand is heading</b>. The first is a graph problem, the
-  second a time-series problem; we answer both in one lakehouse.</p>
-
-  <h2>Data: official Eurostat statistics only</h2>
+  <h2>Problem</h2>
+  <p>Portugal depends on its air links for tourism, the islands and the diaspora. Three questions:</p>
   <ul>
-    <li><b>Route declarations of 35 countries, 2016 to 2024</b>: passengers, seats and flights of every main route, by
-    direction (145,912 reports, reconciled into 101,398 airport-to-airport flows).</li>
-    <li><b>Monthly traffic of 496 European airports, January 2016 to 2026</b> (April 2026 for Portugal), split in
-    national and international passengers.</li>
-    <li>Monthly routes of the Portuguese airports, 2016 to 2024; a public airport registry for names and coordinates.</li>
+    <li><b>Reach</b>: where can you fly from Portugal, directly and with one stop?</li>
+    <li><b>Demand</b>: where are the passengers, how full are the planes, how seasonal is traffic?</li>
+    <li><b>Trend</b>: how is demand evolving, and can the figures be kept up to date as new months arrive?</li>
+  </ul>
+
+  <h2>Data</h2>
+  <p>Official Eurostat statistics, downloaded on 16 November 2026:</p>
+  <ul>
+    <li>the air routes declared by 35 European countries, with passengers, seats and flights, 2016 to 2024 (38 files);</li>
+    <li>the monthly passengers of 496 European airports, January 2016 to 2026 (3 files);</li>
+    <li>a public registry of airports, for names and coordinates.</li>
   </ul>
 
   <h2>Solution</h2>
-  <p>One Databricks notebook that follows the course pipeline: 49 files in a Unity Catalog Volume; <b>Bronze</b> (data
-  rules, Parquet), <b>Silver</b> (business rules, Delta) and <b>Gold</b> (aggregates, Delta); Spark SQL; graph analytics
-  written with DataFrames (degrees, motif, subgraph, breadth-first search, PageRank); Structured Streaming with
-  checkpoints; Delta MERGE and time travel.</p>
-  <p><b>Why Spark.</b> Itineraries are joins of the route table with itself: the 12,473 routes of 2024 become 922,420
-  one-stop itineraries, and 1.35 million two-stop itineraries from Portugal alone, with no sampling.</p>
-
-  <h2>Veracity: what the data does not say by itself</h2>
+  <p>One Databricks notebook organised in the <b>medallion architecture</b>: Bronze keeps the files as received
+  (Parquet), Silver has the clean tables and Gold the tables that answer the questions (Delta). It uses PySpark
+  DataFrames, Spark SQL, Structured Streaming and Unity Catalog.</p>
   <ul>
-    <li>Each route between two reporting countries is declared twice. The two declarations differ by 0.5% in the
-    median, and a rule keeps one.</li>
-    <li>The United Kingdom stopped reporting in 2019: only a comparable panel of 33 countries is followed over time.</li>
-    <li>Partners declared with region codes in 2019 would appear as new routes in 2024: 24 routes are labelled
-    not comparable.</li>
-    <li>16 of 16 quality checks passed; streaming identical to batch (21,672 records); itinerary counts confirmed
-    by an independent pandas computation.</li>
+    <li><b>Parsing</b>: the Eurostat files are text, not tables. 42 files are read in two statements and turned into
+    rows with <code>split</code>, <code>posexplode</code> and <code>pivot</code>.</li>
+    <li><b>Graph as a join</b>: a journey with one stop is a join of the routes with themselves. About 6,000 routes
+    become 923,384 one-stop journeys, which is why Spark is used.</li>
+    <li><b>Streaming</b>: the months of 2025 and then of 2026 arrive as JSON files; a checkpoint makes the second
+    run read only the new files. The result is identical to a batch calculation.</li>
   </ul>
 
-  <img src="figures/reach_by_year.png" alt="Direct destinations and airports within one stop of the main Portuguese airports per year">
-  <p class="cap">Direct destinations and airports within one stop of the five main Portuguese airports, 2016 to 2024.</p>
+  <img src="figures/reach.png" alt="Airports reached directly and with one stop from the main Portuguese airports">
+  <p class="cap">Airports reached from the five main Portuguese airports in 2024, directly and within one stop.</p>
 </div>
 
 <div class="col">
   <h2>Findings</h2>
   <table>
     <tr><th>Question</th><th>Answer</th></tr>
-    <tr><td>European network</td><td>2024: 602 airports, 12,473 routes, 1.1 billion passengers. It lost 49% of its
-    routes in 2020 and is now 8% above 2019. The 4% of airports with more than 100 destinations carry 45% of the passengers.</td></tr>
-    <tr><td>Reach of Portugal</td><td>Lisbon: 106 direct destinations, 94% of the network within one stop. Porto: 77
-    direct, 90% within one stop. A stop adds 5% to the distance (median).</td></tr>
-    <tr><td>Hubs</td><td>Istanbul alone is the best transfer for 20% of Lisbon's one-stop destinations (67% of those in
-    Asia); five hubs for 48%.</td></tr>
-    <tr><td>Demand</td><td>Lisbon handles 49% of the passengers, Porto 23%. Busiest route: Lisbon - Madrid, 1.91 million.
-    The 10 busiest routes carry 20%.</td></tr>
-    <tr><td>Routes 2019 to 2024</td><td>211 kept, 52 gained, 26 lost (including Moscow).</td></tr>
-    <tr><td>Seasonality 2025</td><td>Busiest / quietest month: Faro 4.4, Ponta Delgada 2.8, Porto 1.9, Funchal 1.7, Lisbon 1.5.</td></tr>
-    <tr><td>Trend</td><td>Growth of 5.0% in 2025 and 3.7% in January to April 2026; still 19% below the pre-pandemic trend.</td></tr>
+    <tr><td>Reach</td><td>Lisbon: 106 direct destinations, 562 within one stop (94% of the network). Porto: 77 direct,
+    91% within one stop. Funchal 79%, Faro 77%, Ponta Delgada 66%.</td></tr>
+    <tr><td>Main hub</td><td>Istanbul is a possible stop for 40% of the destinations that Lisbon cannot reach directly.</td></tr>
+    <tr><td>Demand</td><td>67.2 million passengers in 2025. Lisbon handles 49%, Porto 23%, Faro 14%. Funchal grew 68%
+    since 2019. Busiest route: Lisbon - Madrid, 1.91 million passengers.</td></tr>
+    <tr><td>Empty seats</td><td>Lisbon - Porto and Lisbon - Faro: about 72% of the seats occupied, 400,000 empty seats
+    per direction in a year.</td></tr>
+    <tr><td>Seasonality</td><td>Busiest against quietest month: Faro 4.4, Ponta Delgada 2.8, Porto 1.9, Funchal 1.7, Lisbon 1.5.</td></tr>
+    <tr><td>Trend</td><td>The European network lost 49% of its routes in 2020 and is now 8% above 2019. Portugal grew
+    5.0% in 2025 and 3.7% in January to April 2026.</td></tr>
   </table>
 
-  <img src="figures/scenarios.png" alt="Observed passengers, pre-pandemic trend and two scenarios to 2030" style="margin-top:5px">
-  <p class="cap">Air passengers of Portugal per year, with two scenarios for 2030: 85.7 million (latest pace) and 90.1
-  million (pre-pandemic volume growth).</p>
+  <img src="figures/scenarios.png" alt="Passengers of Portugal per year and two scenarios to 2030" style="margin-top:5px">
+  <p class="cap">Air passengers of Portugal per year, with two simple scenarios: 86 to 91 million in 2030.</p>
 
   <h2>Recommendations</h2>
   <ul>
-    <li><b>Reduce the dependence on a single transfer hub</b>: keep at least two gateways for each region of the world.</li>
-    <li><b>Promote regional airports by one-stop reach</b>: 90% of the network from Porto, 66% to 79% from Faro, Funchal and Ponta Delgada.</li>
-    <li><b>Target winter demand in Faro and the Azores</b>; Funchal shows that an island can be stable all year.</li>
-    <li><b>Review the short domestic air routes</b>: about 400,000 empty seats per direction a year on Lisbon - Porto and Lisbon - Faro.</li>
-    <li><b>Plan capacity with a range, and for shocks</b>; treat Lisbon's capacity limit separately.</li>
+    <li><b>Promote Porto, Faro and the islands by their one-stop reach</b>: 66% to 91% of the network.</li>
+    <li><b>Review the domestic air routes</b>, which fly with more than a quarter of their seats empty.</li>
+    <li><b>Fill the winter in Faro</b>; Lisbon, Porto and Funchal are stable all year.</li>
   </ul>
 
   <h2>Limitations</h2>
-  <p>Route statistics end in 2024; only airport statistics reach 2026. The network covers routes with at least one
-  airport in a reporting country, and only main routes. Itineraries are structural: schedules, prices and airlines
-  are not in the data. The scenarios ignore capacity limits.</p>
+  <p>Route statistics end in 2024; only airport statistics reach 2026. The network is the European one. "One stop"
+  means that both routes existed in the same year: timetables and prices are not in the data. The scenarios are
+  reference lines, not a forecast.</p>
 </div>
 </div>
 
 <p class="foot">Sources: Eurostat, datasets avia_par (routes) and avia_paoa (airports), downloaded on 16 November 2026;
-public airport registry (Kaggle). All figures are computed by the project notebook
-<i>ABD_Group_Project_Portugal_Air_Connectivity</i>.</p>
+public airport registry (Kaggle). All figures are computed by the notebook <i>ABD_Project_Portugal_Air_Connectivity</i>.</p>
 </body>
 </html>

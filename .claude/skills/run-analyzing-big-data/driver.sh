@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Driver for the Databricks notebooks of this repository: sets up a local PySpark + Delta Lake environment
-# and runs every cell of a notebook through its local test harness.
-# The project is chosen with ABD_PROJECT: air (default, the submitted project), cp or cp_delays.
+# Driver for the project notebook: sets up a local PySpark + Delta Lake environment and runs every cell of
+# notebooks/ABD_Project_Portugal_Air_Connectivity.py through local_test/run_local.py.
 # Usage (from the repository root):
 #   .claude/skills/run-analyzing-big-data/driver.sh setup          # create the virtualenv (once)
 #   .claude/skills/run-analyzing-big-data/driver.sh classic [dir]  # run on classic Spark
 #   .claude/skills/run-analyzing-big-data/driver.sh connect [dir]  # run through Spark Connect (as Databricks serverless)
-#   .claude/skills/run-analyzing-big-data/driver.sh all            # both modes, then print the control lines
-# Output: full log in $WORKDIR/run.log, charts as PNG files in $WORKDIR/figure_*.png
+#   .claude/skills/run-analyzing-big-data/driver.sh all            # both modes
+# Output: full log in <dir>/run.log, charts as PNG files in <dir>/out/figure_*.png
 set -euo pipefail
 VENV="${ABD_VENV:-$HOME/.venvs/abd}"
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -23,20 +22,14 @@ setup() {
 }
 
 run() {  # $1 = classic|connect, $2 = work dir
-  local work="${2:-/tmp/abd_${ABD_PROJECT:-air}_$1}"
+  local work="${2:-/tmp/abd_local_$1}"
   [ -x "$PY" ] || { echo "run '$0 setup' first"; exit 1; }
   if [ "$1" = connect ]; then export ABD_CONNECT=1; else unset ABD_CONNECT; fi
   mkdir -p "$work"
-  case "${ABD_PROJECT:-air}" in
-    air) harness=local_test/run_air.py ;;
-    cp) harness=local_test/run_local.py ;;
-    cp_delays) harness=local_test/run_cp_delays.py ;;
-    *) echo "unknown ABD_PROJECT (air, cp or cp_delays)"; exit 2 ;;
-  esac
-  ( cd "$ROOT" && "$PY" "$harness" "$work/out" > "$work/run.log" 2>&1 ) \
+  ( cd "$ROOT" && "$PY" local_test/run_local.py "$work/out" > "$work/run.log" 2>&1 ) \
     || { echo "FAILED, last lines of $work/run.log:"; grep -vE "WARN|Stage" "$work/run.log" | tail -25; exit 1; }
   echo "== $1: $work/run.log, figures in $work/out/"
-  grep -E "^Spark [0-9]|checks passed$|identical to batch results :|Sum of all ranks|LOCAL TEST PASSED" "$work/run.log"
+  grep -E "^Spark [0-9]|^All quality checks passed|^Streaming result identical|LOCAL TEST PASSED" "$work/run.log"
 }
 
 case "${1:-all}" in
