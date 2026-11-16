@@ -20,19 +20,20 @@
 # MAGIC 2. Big Data technologies and solution architecture
 # MAGIC 3. Environment setup
 # MAGIC 4. Data sources
-# MAGIC 5. **Bronze** layer: raw ingestion
-# MAGIC 6. **Silver** layer: cleaning, modelling and data quality
+# MAGIC 5. **Bronze** layer: source data and data rules
+# MAGIC 6. **Silver** layer: business rules, modelling and data quality
 # MAGIC 7. **Gold** layer, the present: what CP runs today (Spark SQL)
 # MAGIC 8. **Structured Streaming**: live station departure indicators
 # MAGIC 9. **Graph analytics**: the network of stations
 # MAGIC 10. The future of supply: the 2027 timetable
 # MAGIC 11. The future of demand: passenger projection to 2030
-# MAGIC 12. Delta Lake: audit history and time travel
+# MAGIC 12. Delta Lake: MERGE, audit history and time travel
 # MAGIC 13. Conclusions
 # MAGIC
-# MAGIC > **How to run:** upload the nine data files of the project to the Volume `raw_files` (see section 4),
-# MAGIC > attach the notebook to *Serverless* compute and choose **Run all**. The notebook is idempotent: it rebuilds all
-# MAGIC > its tables on every run and never modifies the uploaded files.
+# MAGIC > **How to run:** upload the nine data files of the project to the folder `cp_rail` of the Volume
+# MAGIC > `/Volumes/workspace/abd/abd` (see section 4), attach the notebook to *Serverless* compute and choose **Run all**.
+# MAGIC > The notebook is idempotent: it rebuilds its data lake folders and tables on every run and never modifies the
+# MAGIC > uploaded files.
 
 # COMMAND ----------
 
@@ -79,54 +80,73 @@
 # MAGIC %md
 # MAGIC ## 2. Big Data technologies and solution architecture
 # MAGIC
+# MAGIC ### 2.1 The project as a pipeline of the ABD classes
+# MAGIC The notebook is organised as one pipeline that applies, in order, what was covered in the classes:
+# MAGIC
+# MAGIC | Class | Topic | Where it is applied in this project |
+# MAGIC |---|---|---|
+# MAGIC | ABD02, ABD03 | Databricks Free Edition, Unity Catalog, Volumes, `dbutils` | Section 3 and 4: the source files and the data lake live in the Volume `/Volumes/workspace/abd/abd` |
+# MAGIC | ABD04, ABD05 | Spark basics, DataFrames, reading files, tables and views | Section 5: structured (CSV) and unstructured (text) files read into DataFrames |
+# MAGIC | ABD06 | Spark SQL programming: aggregations, pivot, explode, dates, windowing, UDFs, PageRank | Sections 6, 7, 9, 10 and 11 |
+# MAGIC | ABD07 | The Data Lakehouse: medallion architecture, Delta Lake, MERGE, time travel | Sections 5, 6, 7 and 12 |
+# MAGIC | ABD08 | Spark Structured Streaming: source, transformation, sink, checkpoint | Section 8 |
+# MAGIC | ABD09 | Graph analytics: vertices and edges, degrees, motifs, subgraphs, BFS, PageRank | Section 9 |
+# MAGIC
+# MAGIC ### 2.2 Technologies
+# MAGIC
 # MAGIC | Technology | How it is used in this project |
 # MAGIC |---|---|
 # MAGIC | **Databricks Free Edition** (serverless compute) | Execution environment for the whole notebook |
-# MAGIC | **Apache Spark DataFrame API** (PySpark) | Ingestion, parsing, calendar expansion, joins, window functions |
-# MAGIC | **Spark SQL** | Gold layer and analysis: CTEs, window functions, conditional aggregation, linear regression aggregates |
+# MAGIC | **Apache Spark DataFrame API** (PySpark) | Ingestion, parsing, calendar expansion, joins, pivot, window functions, a UDF |
+# MAGIC | **Spark SQL** | Gold layer and analysis: `%sql` cells, CTEs, window functions, conditional aggregation, regression aggregates |
 # MAGIC | **Spark Structured Streaming** | Incremental ingestion of JSON departure events: checkpoints, stream-static join, stateful deduplication, windowed aggregation |
-# MAGIC | **Graph analytics on Spark** | Station network: degrees, junctions, busiest sections and an iterative **PageRank** written with DataFrames |
-# MAGIC | **Delta Lake** | ACID storage format of every table, transaction log for audit and time travel |
-# MAGIC | **Unity Catalog** | Data organisation: `catalog.schema.table` namespace, table comments, and **Volumes** for raw files and for the streaming landing zone |
+# MAGIC | **Graph analytics on Spark** | Station network: degrees, motifs, subgraph, breadth-first search and an iterative **PageRank**, written with DataFrames |
+# MAGIC | **Delta Lake** | Storage format of the Silver and Gold tables: ACID writes, `MERGE`, history and time travel |
+# MAGIC | **Unity Catalog** | Data organisation: a Volume for files, a schema for tables, table comments |
 # MAGIC
-# MAGIC ### Data organisation: medallion architecture
+# MAGIC ### 2.3 Data organisation: medallion architecture
+# MAGIC The lakehouse follows the organisation used in class ABD07: the three layers live in folders of the Volume, the
+# MAGIC Bronze layer is stored as **Parquet** files in one folder per load date, and the Silver and Gold layers are
+# MAGIC **Delta** tables registered in a dedicated schema, with the prefixes `SV_` and `GD_`.
 # MAGIC
 # MAGIC ```
-# MAGIC                                   Unity Catalog schema: <catalog>.abd_cp_rail
+# MAGIC  Volume /Volumes/workspace/abd/abd                                Schema workspace.DL_CP
 # MAGIC
-# MAGIC  SOURCES                       BRONZE (raw)             SILVER (clean, modelled)         GOLD (business)
-# MAGIC  -------                       ------------             ------------------------         ---------------
-# MAGIC  Volume raw_files
-# MAGIC   CP timetable (GTFS)    -->   bronze_gtfs_*       -->  dim_station, dim_service    -->  gold_daily_supply
-# MAGIC   7 CSV files           batch  (7 tables)               silver_trips                     gold_weekly_supply
-# MAGIC                                                         silver_stop_times                gold_station_activity
-# MAGIC                                                         silver_trip_segments             gold_hourly_departures
-# MAGIC                                                         silver_service_days              gold_journey_times
-# MAGIC                                                                                          gold_graph_vertices / _edges
-# MAGIC                                                                                          gold_station_pagerank
-# MAGIC   Eurostat rail          -->   bronze_eurostat_*   -->  silver_rail_passengers      -->  gold_passenger_forecast
-# MAGIC   passengers, 2 TSV     batch  (2 tables)               dim_country                      gold_passenger_growth_by_country
+# MAGIC  SOURCES (cp_rail/)            BRONZE (DL_CP/Bronze/<date>/)      SILVER (Delta tables SV_)        GOLD (Delta tables GD_)
+# MAGIC  ------------------            -----------------------------      -------------------------        -----------------------
+# MAGIC  CP timetable (GTFS)    -->    Parquet: agency, routes,      -->  SV_Stations, SV_Services    -->  GD_Daily_Supply
+# MAGIC  7 CSV files           batch   stops, trips, stop_times,          SV_Trips                         GD_Weekly_Supply
+# MAGIC                                calendar, calendar_dates           SV_Stop_Times                    GD_Station_Activity
+# MAGIC                                                                   SV_Trip_Segments                 GD_Hourly_Departures
+# MAGIC                                                                   SV_Service_Days                  GD_Journey_Times
+# MAGIC                                                                                                    GD_Graph_Vertices / _Edges
+# MAGIC                                                                                                    GD_Station_PageRank
+# MAGIC                                                                                                    GD_Station_Hops
+# MAGIC  Eurostat rail          -->    Parquet: rail_pa_total,       -->  SV_Rail_Passengers          -->  GD_Passenger_Forecast
+# MAGIC  passengers, 2 TSV     batch   rail_pa_quartal (text lines)       SV_Countries                     GD_Passenger_Growth_by_Country
+# MAGIC                                                                   SV_Quarterly_Passengers
 # MAGIC
-# MAGIC  Volume landing
-# MAGIC   departure events       -->   bronze_departures_  -->  silver_departures_stream    -->  gold_station_departures_stream
-# MAGIC   JSON files          streaming      stream (append)          (append)                        (complete)
-# MAGIC                                  checkpoint                  checkpoint                       checkpoint
+# MAGIC  Departure events       -->    BZ_Departures_Stream          -->  SV_Departures_Stream        -->  GD_Station_Departures_Stream
+# MAGIC  JSON files in       streaming       (append)                         (append)                         (complete)
+# MAGIC  DL_CP/Landing/                    checkpoint                        checkpoint                        checkpoint
 # MAGIC ```
 # MAGIC
-# MAGIC * **Bronze** keeps every file exactly as received (all columns as text) plus the source file name and the ingestion time.
-# MAGIC * **Silver** holds typed, validated and modelled data: dimensions (stations, services) and facts (trips, stop times,
-# MAGIC   segments, operating days, passenger statistics).
-# MAGIC * **Gold** holds small aggregated tables that directly answer the business questions.
+# MAGIC * **Bronze**: the source data after the **data rules** (relevant columns, nulls in key columns, duplicates, data
+# MAGIC   types). It can be reprocessed at any time, which is why each load has its own dated folder.
+# MAGIC * **Silver**: the result of the **business rules**: a clean, detailed history of business entities and facts
+# MAGIC   (stations, services, trips, stop times, segments, operating days, passenger statistics).
+# MAGIC * **Gold**: small aggregated tables built for one specific use, each one answering a business question.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## 3. Environment setup
-# MAGIC All names, dates and parameters used by the pipeline are defined once in the next cell.
+# MAGIC All names, paths, dates and parameters used by the pipeline are defined once in the next cell.
 
 # COMMAND ----------
 
 # DBTITLE 1,Imports and configuration
+import datetime
 import os
 
 from pyspark.sql import DataFrame
@@ -142,11 +162,17 @@ from pyspark.sql.types import (
 
 import matplotlib.pyplot as plt
 
-# ---- Target namespace (Unity Catalog) ---------------------------------------
-CATALOG = spark.sql("SELECT current_catalog()").first()[0]
-SCHEMA = "abd_cp_rail"
-RAW_VOLUME = "raw_files"      # uploaded source files (never modified by the notebook)
-LANDING_VOLUME = "landing"    # streaming landing zone and checkpoints (recreated on every run)
+# ---- Unity Catalog: Volume for files and schema for tables --------------------
+CATALOG = "workspace"
+VOLUME_PATH = "/Volumes/workspace/abd/abd"   # the Volume used in the ABD classes
+SOURCE_PATH = f"{VOLUME_PATH}/cp_rail"       # uploaded source files (never modified by the notebook)
+SCHEMA = "DL_CP"                             # schema of the lakehouse tables (Silver and Gold)
+
+# ---- Data lake folders: one per layer, as in class ABD07 ----------------------
+DL_Path = f"{VOLUME_PATH}/DL_CP"
+DL_Bronze_Path = f"{DL_Path}/Bronze/"
+DL_Landing_Path = f"{DL_Path}/Landing/departure_events"   # landing zone for the streaming JSON events
+DL_Checkpoint_Path = f"{DL_Path}/Checkpoints"             # one sub-folder per streaming query
 
 # ---- Source files -----------------------------------------------------------
 GTFS_FILES = ["agency", "routes", "stops", "trips", "stop_times", "calendar", "calendar_dates"]
@@ -175,6 +201,9 @@ DEPARTURE_BOARD_STATION = "Lisboa Oriente"
 PAGERANK_DAMPING = 0.85
 PAGERANK_MAX_ITER = 100
 PAGERANK_TOLERANCE = 1e-5
+BFS_SOURCE_STATION = "Lisboa Oriente"
+BFS_TARGET_STATIONS = ["Faro", "Valenca", "Guarda"]
+BFS_MAX_HOPS = 60
 
 # ---- Demand projection (section 11) -----------------------------------------
 COUNTRY = "PT"
@@ -187,42 +216,43 @@ PANDEMIC_YEARS = (2020, 2021, 2022)
 
 
 def table_name(name: str) -> str:
-    """Return the fully qualified Unity Catalog name of a project table."""
+    """Return the fully qualified Unity Catalog name of a lakehouse table."""
     return f"{CATALOG}.{SCHEMA}.{name}"
 
 
-print(f"Project schema : {CATALOG}.{SCHEMA}")
+print(f"Source files     : {SOURCE_PATH}")
+print(f"Data lake folder : {DL_Path}")
+print(f"Lakehouse schema : {CATALOG}.{SCHEMA}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Create the schema and the volumes, and reset the tables
+# DBTITLE 1,Remove the tables and files of previous runs, create the schema and the folders
+# The Volume of the classes is created only if it does not exist yet
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.abd")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.abd.abd")
+
+# Removing old tables and files (from previous runs), so that the notebook can be run again at any time.
+# The uploaded source files in SOURCE_PATH are kept.
+spark.sql(f"DROP SCHEMA IF EXISTS {CATALOG}.{SCHEMA} CASCADE")
+dbutils.fs.rm(DL_Path, True)
+
+# Creating our schema to store the lakehouse tables, and the folder for the source files
 spark.sql(
     f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA} "
-    "COMMENT 'ABD group project: Comboios de Portugal, present and future (bronze, silver and gold tables)'"
+    "COMMENT 'ABD group project: Comboios de Portugal, present and future (Silver and Gold tables)'"
 )
+dbutils.fs.mkdirs(SOURCE_PATH)
 
-# Idempotency: drop every table of a previous run. The raw files are kept.
-for row in spark.sql(f"SHOW TABLES IN {CATALOG}.{SCHEMA}").filter(~F.col("isTemporary")).collect():
-    spark.sql(f"DROP TABLE IF EXISTS {table_name(row['tableName'])}")
+# COMMAND ----------
 
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{RAW_VOLUME}")
-spark.sql(f"DROP VOLUME IF EXISTS {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")
-spark.sql(f"CREATE VOLUME {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")
-RAW_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{RAW_VOLUME}"
-LANDING_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{LANDING_VOLUME}"
-
-LANDING_PATH = f"{LANDING_ROOT}/departure_events"   # landing zone for streaming JSON events
-CHECKPOINT_PATH = f"{LANDING_ROOT}/_checkpoints"     # one sub-folder per streaming query
-
-print(f"Raw files      : {RAW_PATH}")
-print(f"Landing zone   : {LANDING_PATH}")
-print(f"Checkpoints    : {CHECKPOINT_PATH}")
+# DBTITLE 1,Verify the schema
+spark.sql(f"DESCRIBE SCHEMA EXTENDED {CATALOG}.{SCHEMA}").show(truncate=False)
 
 # COMMAND ----------
 
 # DBTITLE 1,Helper functions
 def save_table(df: DataFrame, name: str, comment: str) -> str:
-    """Overwrite a managed Delta table with `df` and document it with a comment."""
+    """Save `df` as a managed Delta table of the lakehouse schema and document it with a comment."""
     full_name = table_name(name)
     (
         df.write.format("delta")
@@ -237,13 +267,8 @@ def save_table(df: DataFrame, name: str, comment: str) -> str:
 
 
 def row_count(name: str) -> int:
-    """Number of rows of a project table."""
+    """Number of rows of a lakehouse table."""
     return spark.table(table_name(name)).count()
-
-
-def week_label(week_start: str) -> str:
-    """Human readable label of a reference week."""
-    return f"Week of {week_start}"
 
 # COMMAND ----------
 
@@ -255,116 +280,232 @@ def week_label(week_start: str) -> str:
 # MAGIC | **CP timetable (GTFS)** | `agency.txt`, `routes.txt`, `stops.txt`, `trips.txt`, `stop_times.txt`, `calendar.txt`, `calendar_dates.txt` | The official public timetable of CP in the *General Transit Feed Specification* format: stations, trains, the time of every stop and the days on which each train runs | `https://publico.cp.pt/gtfs/gtfs.zip` |
 # MAGIC | **Eurostat rail passengers** | `rail_pa_total.tsv` (annual, all countries), `rail_pa_quartal.tsv` (quarterly, all countries) | Passengers transported by rail (thousand passengers and million passenger-kilometres) | Eurostat datasets `rail_pa_total` and `rail_pa_quartal` |
 # MAGIC
-# MAGIC Both sources were downloaded on **16 November 2026** (the CP feed had been generated the day before) and uploaded unchanged to the Volume `raw_files`
-# MAGIC (Catalog > `abd_cp_rail` > `raw_files` > *Upload to this volume*). Databricks Free Edition restricts outbound
-# MAGIC internet access, so the files are uploaded instead of being downloaded by the notebook.
+# MAGIC Both sources were downloaded on **16 November 2026** (the CP feed had been generated the day before) and uploaded
+# MAGIC unchanged with the Databricks interface to the folder `cp_rail` of the Volume `/Volumes/workspace/abd/abd`
+# MAGIC (Catalog > `workspace` > `abd` > `abd` > `cp_rail` > *Upload to this volume*). Databricks Free Edition restricts
+# MAGIC outbound internet access, so the files are uploaded instead of being downloaded by the notebook.
 # MAGIC
 # MAGIC **Scope note.** The Eurostat figures cover all rail passenger operators in Portugal, not only CP. They are used
 # MAGIC as the measure of rail demand in the country.
 
 # COMMAND ----------
 
-# DBTITLE 1,Check that all source files are in the Volume
+# DBTITLE 1,Check the source files in the Volume
 expected_files = [f"{name}.txt" for name in GTFS_FILES] + [f"{name}.tsv" for name in EUROSTAT_FILES]
-missing_files = [f for f in expected_files if not os.path.exists(f"{RAW_PATH}/{f}")]
+missing_files = [f for f in expected_files if not os.path.exists(f"{SOURCE_PATH}/{f}")]
 
 if missing_files:
     raise FileNotFoundError(
-        f"Missing source files in {RAW_PATH}: {missing_files}. "
-        "Upload the nine files of the project data folder to this Volume and run the notebook again."
+        f"Missing source files in {SOURCE_PATH}: {missing_files}. "
+        "Upload the nine files of the project data folder to this folder of the Volume and run the notebook again."
     )
 
-print(f"{'File':<24}{'Size (KB)':>12}")
-for file_name in expected_files:
-    print(f"{file_name:<24}{os.path.getsize(f'{RAW_PATH}/{file_name}') / 1024:>12,.1f}")
+display(dbutils.fs.ls(SOURCE_PATH))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Bronze layer: raw ingestion
-# MAGIC Every file becomes one Bronze table. Nothing is interpreted at this stage: all columns are kept as text, and two
-# MAGIC technical columns record **which file** each row came from and **when** it was ingested.
+# MAGIC ## 5. Bronze layer: source data and data rules
 # MAGIC
-# MAGIC * The GTFS files are comma-separated with a header.
-# MAGIC * The Eurostat files are ingested as **raw lines of text**. Their layout is not relational (one column per year or
-# MAGIC   quarter, values mixed with status flags), so parsing is left to the Silver layer.
+# MAGIC ### 5.1 Read the source data
+# MAGIC Before defining any rule we look at the files as they arrive: structure, data types and content.
+# MAGIC * The GTFS files are **structured** data: comma-separated values with a header.
+# MAGIC * The Eurostat files are read as **text**, one row per line. Their layout is not relational (one column per year
+# MAGIC   or quarter, values mixed with status flags), so they are treated as unstructured data until the Silver layer.
 
 # COMMAND ----------
 
-# DBTITLE 1,Ingest the GTFS files and the Eurostat files into Bronze
-def with_ingestion_metadata(df: DataFrame) -> DataFrame:
-    """Add the source file and the ingestion timestamp to a DataFrame read from files."""
-    return df.withColumn("_source_file", F.col("_metadata.file_path")).withColumn(
-        "_ingested_at", F.current_timestamp()
-    )
+# DBTITLE 1,Structured data: the stop times of the timetable
+raw_stop_times = spark.read.option("header", True).csv(f"{SOURCE_PATH}/stop_times.txt")
 
-
-for name in GTFS_FILES:
-    raw_df = spark.read.option("header", True).option("inferSchema", False).csv(f"{RAW_PATH}/{name}.txt")
-    save_table(
-        with_ingestion_metadata(raw_df),
-        f"bronze_gtfs_{name}",
-        f"BRONZE - CP GTFS file {name}.txt as received, all columns as text",
-    )
-
-for name in EUROSTAT_FILES:
-    raw_df = spark.read.text(f"{RAW_PATH}/{name}.tsv")
-    save_table(
-        with_ingestion_metadata(raw_df),
-        f"bronze_eurostat_{name}",
-        f"BRONZE - Eurostat file {name}.tsv as received, one row per line of text",
-    )
+raw_stop_times.printSchema()
+print(f"Rows: {raw_stop_times.count():,}")
+raw_stop_times.limit(5).display()
 
 # COMMAND ----------
 
-# DBTITLE 1,First look at the raw timetable
-display(spark.table(table_name("bronze_gtfs_stop_times")).limit(5))
-display(spark.table(table_name("bronze_gtfs_calendar")).limit(5))
+# DBTITLE 1,Structured data: the calendar of the timetable
+raw_calendar = spark.read.option("header", True).csv(f"{SOURCE_PATH}/calendar.txt")
+
+raw_calendar.limit(5).display()
 
 # COMMAND ----------
 
-# DBTITLE 1,First look at the raw Eurostat file
-display(
-    spark.table(table_name("bronze_eurostat_rail_pa_total"))
-    .select(F.substring("value", 1, 110).alias("first_110_characters_of_the_line"))
-    .limit(4)
-)
+# DBTITLE 1,Checking for nulls in the stop times
+raw_stop_times.select(
+    [F.count(F.when(F.isnull(c), True)).alias(c) for c in raw_stop_times.columns]
+).display()
+
+# COMMAND ----------
+
+# DBTITLE 1,Unstructured data: the Eurostat file as lines of text
+raw_eurostat = spark.read.text(f"{SOURCE_PATH}/rail_pa_total.tsv")
+
+raw_eurostat.select(F.substring("value", 1, 110).alias("first_110_characters_of_the_line")).limit(4).display()
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC **Observations.**
-# MAGIC * `stop_times` has one row per stop of each train, with times as text. Times can exceed `24:00:00` for trains that
-# MAGIC   run past midnight, so they cannot be cast to a timestamp directly.
+# MAGIC * Every column is read as a string, so the numeric and date columns have to be converted.
+# MAGIC * Some columns of the GTFS files are completely empty (`stop_headsign` and `shape_dist_traveled` above). They carry
+# MAGIC   no information and are not taken to the Bronze layer.
+# MAGIC * `stop_times` has one row per stop of each train. Times are text and can exceed `24:00:00` for trains that run
+# MAGIC   past midnight, so they cannot be cast to a timestamp directly (handled in the Silver layer).
 # MAGIC * `calendar` does not list dates: it gives a validity period and seven weekday flags per service. The days on
 # MAGIC   which a train really runs must be **generated** from it and corrected with the exceptions in `calendar_dates`.
 # MAGIC * The Eurostat file packs three dimensions in the first column, has one column per period, and marks missing
 # MAGIC   or confidential values with `:` and letter flags.
+# MAGIC
+# MAGIC ### 5.2 Apply the data rules and save the Bronze files
+# MAGIC **This is where the "data" rules apply.** The same four rules are applied to every GTFS file, driven by one
+# MAGIC specification per file:
+# MAGIC
+# MAGIC 1. **Relevant columns**: keep only the columns that carry information.
+# MAGIC 2. **Data types**: convert numbers and dates (`try_cast`, so that an invalid value becomes null instead of
+# MAGIC    stopping the pipeline).
+# MAGIC 3. **Nulls**: drop the records with a null in a key column.
+# MAGIC 4. **Duplicates**: drop repeated records.
+# MAGIC
+# MAGIC The result is saved in **Parquet** format, which is efficient and adequate for read-only data, in a folder named
+# MAGIC after the load date so that any load can be reprocessed with minimal effort.
+
+# COMMAND ----------
+
+# DBTITLE 1,Bronze specification: columns, data types and keys of each GTFS file
+BRONZE_SPECS = {
+    "agency": {
+        "columns": {"agency_id": "string", "agency_name": "string", "agency_timezone": "string"},
+        "keys": ["agency_id"],
+    },
+    "routes": {
+        "columns": {"route_id": "string", "agency_id": "string", "route_short_name": "string", "route_type": "int"},
+        "keys": ["route_id"],
+    },
+    "stops": {
+        "columns": {"stop_id": "string", "stop_name": "string", "stop_lat": "double", "stop_lon": "double"},
+        "keys": ["stop_id"],
+    },
+    "trips": {
+        "columns": {
+            "trip_id": "string", "route_id": "string", "service_id": "string",
+            "trip_short_name": "string", "trip_headsign": "string",
+        },
+        "keys": ["trip_id"],
+    },
+    "stop_times": {
+        "columns": {
+            "trip_id": "string", "stop_sequence": "int", "stop_id": "string",
+            "arrival_time": "string", "departure_time": "string",
+        },
+        "keys": ["trip_id", "stop_sequence"],
+    },
+    "calendar": {
+        "columns": {
+            "service_id": "string", "start_date": "date", "end_date": "date",
+            "monday": "int", "tuesday": "int", "wednesday": "int", "thursday": "int",
+            "friday": "int", "saturday": "int", "sunday": "int",
+        },
+        "keys": ["service_id"],
+    },
+    "calendar_dates": {
+        "columns": {"service_id": "string", "date": "date", "exception_type": "int"},
+        "keys": ["service_id", "date"],
+    },
+}
+
+# One folder per load date
+date_tag = datetime.datetime.now().strftime("%Y-%b-%d")
+DL_Bronze_Path_day = DL_Bronze_Path + date_tag + "/"
+print(DL_Bronze_Path_day)
+
+# COMMAND ----------
+
+# DBTITLE 1,Apply the data rules and write the Bronze files (Parquet)
+def typed_column(name: str, data_type: str):
+    """Convert a source text column to its Bronze data type. Invalid values become null."""
+    if data_type == "string":
+        return F.col(name)
+    if data_type == "date":
+        return F.expr(f"CAST(try_to_timestamp({name}, 'yyyyMMdd') AS DATE)").alias(name)
+    return F.expr(f"try_cast({name} AS {data_type})").alias(name)
+
+
+bronze_log = []
+
+for name in GTFS_FILES:
+    spec = BRONZE_SPECS[name]
+    raw = spark.read.option("header", True).csv(f"{SOURCE_PATH}/{name}.txt")
+
+    raw_typed = raw.select([typed_column(c, t) for c, t in spec["columns"].items()])   # rules 1 and 2
+    raw_noNulls = raw_typed.dropna(subset=spec["keys"])                                # rule 3
+    raw_noDup = raw_noNulls.dropDuplicates()                                           # rule 4
+    raw_Final = raw_noDup.withColumn("_source_file", F.lit(f"{name}.txt")).withColumn(
+        "_ingested_at", F.current_timestamp()
+    )
+
+    raw_Final.write.format("parquet").mode("overwrite").save(DL_Bronze_Path_day + name)
+    bronze_log.append((f"{name}.txt", raw.count(), raw_noNulls.count(), raw_noDup.count()))
+
+for name in EUROSTAT_FILES:
+    raw = spark.read.text(f"{SOURCE_PATH}/{name}.tsv")
+
+    raw_noNulls = raw.filter(F.length(F.trim("value")) > 0)   # no empty lines
+    raw_noDup = raw_noNulls.dropDuplicates()
+    raw_Final = raw_noDup.withColumn("_source_file", F.lit(f"{name}.tsv")).withColumn(
+        "_ingested_at", F.current_timestamp()
+    )
+
+    raw_Final.write.format("parquet").mode("overwrite").save(DL_Bronze_Path_day + name)
+    bronze_log.append((f"{name}.tsv", raw.count(), raw_noNulls.count(), raw_noDup.count()))
+
+# Log with the statistics of the load, for control purposes
+bronze_log_df = spark.createDataFrame(
+    bronze_log, "source_file STRING, rows_read LONG, rows_after_null_rule LONG, rows_in_bronze LONG"
+).withColumn("rows_removed", F.col("rows_read") - F.col("rows_in_bronze"))
+
+bronze_log_df.display()
+
+# COMMAND ----------
+
+# DBTITLE 1,Check the Bronze files in the Volume
+display(dbutils.fs.ls(DL_Bronze_Path_day))
+
+
+def read_bronze(name: str) -> DataFrame:
+    """Read one file of the Bronze layer (the load of the current run)."""
+    return spark.read.parquet(DL_Bronze_Path_day + name)
+
+
+read_bronze("calendar").printSchema()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Silver layer: cleaning, modelling and data quality
+# MAGIC ## 6. Silver layer: business rules, modelling and data quality
+# MAGIC **This is where the "business" rules apply.** The Bronze files are read and conformed into the entities and facts
+# MAGIC of the railway: stations, services, stop times, segments, trips and operating days. Each one is saved as a Delta
+# MAGIC table with the prefix `SV_`.
 # MAGIC
-# MAGIC ### 6.1 Dimensions: stations and services
+# MAGIC ### 6.1 Reference data: stations and services
 # MAGIC The feed identifies the type of train only by a short code or a line name. A small reference table translates
 # MAGIC it into the commercial service of CP and into three service groups used throughout the analysis.
 
 # COMMAND ----------
 
-# DBTITLE 1,dim_station
-dim_station_df = spark.table(table_name("bronze_gtfs_stops")).select(
+# DBTITLE 1,SV_Stations
+dim_station_df = read_bronze("stops").select(
     F.col("stop_id").alias("station_id"),
     F.regexp_replace(F.trim("stop_name"), r"\s+", " ").alias("station_name"),
-    F.col("stop_lat").cast("double").alias("latitude"),
-    F.col("stop_lon").cast("double").alias("longitude"),
+    F.col("stop_lat").alias("latitude"),
+    F.col("stop_lon").alias("longitude"),
 )
 
-save_table(dim_station_df, "dim_station", "SILVER dimension - CP stations with coordinates")
+save_table(dim_station_df, "SV_Stations", "SILVER reference data - CP stations with coordinates")
 
 # COMMAND ----------
 
-# DBTITLE 1,dim_service: commercial services of CP
+# DBTITLE 1,SV_Services: reference table with the commercial services of CP
 dim_service_df = spark.createDataFrame(
     [
         ("AP", "Alfa Pendular", "Long distance", 1),
@@ -387,8 +528,8 @@ dim_service_df = spark.createDataFrame(
 
 save_table(
     dim_service_df,
-    "dim_service",
-    "SILVER dimension - maps the GTFS route short name to the CP commercial service and service group",
+    "SV_Services",
+    "SILVER reference data - maps the GTFS route short name to the CP commercial service and service group",
 )
 
 # COMMAND ----------
@@ -408,7 +549,7 @@ save_table(
 
 # COMMAND ----------
 
-# DBTITLE 1,silver_stop_times
+# DBTITLE 1,SV_Stop_Times
 def time_to_seconds(column_name: str):
     """Convert a GTFS 'HH:MM:SS' text (hours may exceed 23) into seconds after midnight."""
     parts = F.split(F.col(column_name), ":")
@@ -420,10 +561,10 @@ def time_to_seconds(column_name: str):
 
 
 silver_stop_times_df = (
-    spark.table(table_name("bronze_gtfs_stop_times"))
+    read_bronze("stop_times")
     .select(
         "trip_id",
-        F.col("stop_sequence").cast("int").alias("stop_sequence"),
+        "stop_sequence",
         F.col("stop_id").alias("station_id"),
         time_to_seconds("arrival_time").alias("arrival_sec"),
         time_to_seconds("departure_time").alias("departure_sec"),
@@ -437,13 +578,13 @@ silver_stop_times_df = (
 
 save_table(
     silver_stop_times_df,
-    "silver_stop_times",
+    "SV_Stop_Times",
     "SILVER - one row per stop of each trip, times in seconds after midnight of the service day, last stop flagged",
 )
 
 # COMMAND ----------
 
-# DBTITLE 1,silver_trip_segments: runs between consecutive stops
+# DBTITLE 1,SV_Trip_Segments: runs between consecutive stops
 EARTH_RADIUS_KM = 6371.0088
 
 
@@ -455,11 +596,11 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return 2 * EARTH_RADIUS_KM * F.asin(F.sqrt(a))
 
 
-stations = spark.table(table_name("dim_station"))
+stations = spark.table(table_name("SV_Stations"))
 trip_order = Window.partitionBy("trip_id").orderBy("stop_sequence")
 
 silver_trip_segments_df = (
-    spark.table(table_name("silver_stop_times"))
+    spark.table(table_name("SV_Stop_Times"))
     .withColumn("to_station_id", F.lead("station_id").over(trip_order))
     .withColumn("to_arrival_sec", F.lead("arrival_sec").over(trip_order))
     .filter(F.col("to_station_id").isNotNull())
@@ -491,7 +632,7 @@ silver_trip_segments_df = (
 
 save_table(
     silver_trip_segments_df,
-    "silver_trip_segments",
+    "SV_Trip_Segments",
     "SILVER - run between two consecutive stops of a trip, with running time and straight-line distance",
 )
 
@@ -504,9 +645,9 @@ save_table(
 
 # COMMAND ----------
 
-# DBTITLE 1,silver_trips
+# DBTITLE 1,SV_Trips
 trip_endpoints = (
-    spark.table(table_name("silver_stop_times"))
+    spark.table(table_name("SV_Stop_Times"))
     .groupBy("trip_id")
     .agg(
         F.count("*").alias("stops"),
@@ -517,15 +658,15 @@ trip_endpoints = (
     )
 )
 trip_lengths = (
-    spark.table(table_name("silver_trip_segments"))
+    spark.table(table_name("SV_Trip_Segments"))
     .groupBy("trip_id")
     .agg(F.sum("distance_km").alias("distance_km"))
 )
-routes = spark.table(table_name("bronze_gtfs_routes")).select("route_id", "route_short_name")
-services = F.broadcast(spark.table(table_name("dim_service")))
+routes = read_bronze("routes").select("route_id", "route_short_name")
+services = F.broadcast(spark.table(table_name("SV_Services")))
 
 silver_trips_df = (
-    spark.table(table_name("bronze_gtfs_trips"))
+    read_bronze("trips")
     .select(
         "trip_id",
         "service_id",
@@ -583,7 +724,7 @@ silver_trips_df = (
 
 save_table(
     silver_trips_df,
-    "silver_trips",
+    "SV_Trips",
     "SILVER - one row per train run of the timetable, with service, endpoints, duration, distance and speed",
 )
 
@@ -598,18 +739,10 @@ save_table(
 
 # COMMAND ----------
 
-# DBTITLE 1,silver_service_days
-calendar_df = spark.table(table_name("bronze_gtfs_calendar")).select(
-    "service_id",
-    F.to_date("start_date", "yyyyMMdd").alias("start_date"),
-    F.to_date("end_date", "yyyyMMdd").alias("end_date"),
-    *[F.col(day).cast("int").alias(day) for day in
-      ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")],
-)
-exceptions_df = spark.table(table_name("bronze_gtfs_calendar_dates")).select(
-    "service_id",
-    F.to_date("date", "yyyyMMdd").alias("service_date"),
-    F.col("exception_type").cast("int").alias("exception_type"),
+# DBTITLE 1,SV_Service_Days
+calendar_df = read_bronze("calendar")
+exceptions_df = read_bronze("calendar_dates").select(
+    "service_id", F.col("date").alias("service_date"), "exception_type"
 )
 
 regular_days = (
@@ -638,23 +771,23 @@ silver_service_days_df = (
 
 save_table(
     silver_service_days_df,
-    "silver_service_days",
+    "SV_Service_Days",
     "SILVER - one row per service and date on which it runs (calendar expanded, exceptions applied)",
 )
 
 # COMMAND ----------
 
 # DBTITLE 1,How much data does the timetable really describe?
-n_trips = row_count("silver_trips")
-n_stop_times = row_count("silver_stop_times")
-n_service_days = row_count("silver_service_days")
+n_trips = row_count("SV_Trips")
+n_stop_times = row_count("SV_Stop_Times")
+n_service_days = row_count("SV_Service_Days")
 n_stop_events = (
-    spark.table(table_name("silver_service_days"))
-    .join(spark.table(table_name("silver_trips")).select("service_id", "stops"), "service_id")
+    spark.table(table_name("SV_Service_Days"))
+    .join(spark.table(table_name("SV_Trips")).select("service_id", "stops"), "service_id")
     .agg(F.sum("stops"))
     .first()[0]
 )
-feed_period = spark.table(table_name("silver_service_days")).agg(
+feed_period = spark.table(table_name("SV_Service_Days")).agg(
     F.min("service_date").alias("first_day"), F.max("service_date").alias("last_day")
 ).first()
 
@@ -668,7 +801,7 @@ print(f"Stop events they represent          : {n_stop_events:>12,}")
 
 # MAGIC %md
 # MAGIC ### 6.5 Eurostat: from a wide text file to a tidy table
-# MAGIC The raw lines are parsed with Spark only:
+# MAGIC The lines of text of the Bronze files are parsed with Spark only (`split` and `posexplode`, as in class ABD06):
 # MAGIC 1. the header line gives the list of periods;
 # MAGIC 2. `posexplode` turns the values of each line into rows and joins them to the periods **by position** (unpivot);
 # MAGIC 3. the first column is split into frequency, unit and country;
@@ -677,10 +810,10 @@ print(f"Stop events they represent          : {n_stop_events:>12,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,silver_rail_passengers
-def parse_eurostat(bronze_table: str, dataset: str) -> DataFrame:
-    """Unpivot a raw Eurostat TSV (one text line per row) into one row per series and period."""
-    lines = spark.table(table_name(bronze_table)).select("value")
+# DBTITLE 1,SV_Rail_Passengers
+def parse_eurostat(dataset: str) -> DataFrame:
+    """Unpivot a Eurostat file of the Bronze layer (one text line per row) into one row per series and period."""
+    lines = read_bronze(dataset).select("value")
     is_header = F.col("value").startswith("freq")
 
     periods = lines.filter(is_header).select(
@@ -709,25 +842,23 @@ def parse_eurostat(bronze_table: str, dataset: str) -> DataFrame:
     )
 
 
-silver_rail_passengers_df = parse_eurostat("bronze_eurostat_rail_pa_total", "rail_pa_total").unionByName(
-    parse_eurostat("bronze_eurostat_rail_pa_quartal", "rail_pa_quartal")
-)
+silver_rail_passengers_df = parse_eurostat("rail_pa_total").unionByName(parse_eurostat("rail_pa_quartal"))
 
 save_table(
     silver_rail_passengers_df,
-    "silver_rail_passengers",
+    "SV_Rail_Passengers",
     "SILVER - Eurostat rail passengers, one row per dataset, unit, country and period (value NULL when not available)",
 )
 
 display(
-    spark.table(table_name("silver_rail_passengers"))
+    spark.table(table_name("SV_Rail_Passengers"))
     .filter((F.col("country_code") == COUNTRY) & (F.col("frequency") == "A") & (F.col("year") >= 2019))
     .orderBy("unit", "year")
 )
 
 # COMMAND ----------
 
-# DBTITLE 1,dim_country
+# DBTITLE 1,SV_Countries
 dim_country_df = spark.createDataFrame(
     [
         ("AT", "Austria"), ("BA", "Bosnia and Herzegovina"), ("BE", "Belgium"), ("BG", "Bulgaria"),
@@ -742,7 +873,11 @@ dim_country_df = spark.createDataFrame(
     "country_code STRING, country_name STRING",
 )
 
-save_table(dim_country_df, "dim_country", "SILVER dimension - Eurostat country codes (aggregates such as EU27 excluded)")
+save_table(
+    dim_country_df,
+    "SV_Countries",
+    "SILVER reference data - Eurostat country codes (aggregates such as EU27 excluded)",
+)
 
 # COMMAND ----------
 
@@ -750,17 +885,17 @@ save_table(dim_country_df, "dim_country", "SILVER dimension - Eurostat country c
 # MAGIC ### 6.6 Data quality report
 # MAGIC Each check counts the records that **violate** a rule. A check passes when the count is zero.
 # MAGIC The checks cover referential integrity between the files, the validity of times and coordinates, the mapping of
-# MAGIC services, and the reconciliation between Bronze and Silver.
+# MAGIC services, and the reconciliation between the source files, Bronze and Silver.
 
 # COMMAND ----------
 
 # DBTITLE 1,Data quality checks
-trips_t = spark.table(table_name("silver_trips"))
-stop_times_t = spark.table(table_name("silver_stop_times"))
-segments_t = spark.table(table_name("silver_trip_segments"))
-stations_t = spark.table(table_name("dim_station"))
-service_days_t = spark.table(table_name("silver_service_days"))
-calendar_ids = spark.table(table_name("bronze_gtfs_calendar")).select("service_id").distinct()
+trips_t = spark.table(table_name("SV_Trips"))
+stop_times_t = spark.table(table_name("SV_Stop_Times"))
+segments_t = spark.table(table_name("SV_Trip_Segments"))
+stations_t = spark.table(table_name("SV_Stations"))
+service_days_t = spark.table(table_name("SV_Service_Days"))
+calendar_ids = read_bronze("calendar").select("service_id").distinct()
 
 quality_checks = [
     ("Stations with a duplicated identifier",
@@ -800,12 +935,14 @@ quality_checks = [
     ("Same train number running twice on the same day",
      service_days_t.join(trips_t.select("service_id", "train_number"), "service_id")
      .groupBy("service_date", "train_number").count().filter("count > 1").count()),
+    ("Source rows removed by the Bronze data rules",
+     bronze_log_df.agg(F.sum("rows_removed")).first()[0]),
     ("Bronze rows of stop_times not present in Silver",
-     row_count("bronze_gtfs_stop_times") - row_count("silver_stop_times")),
+     read_bronze("stop_times").count() - row_count("SV_Stop_Times")),
     ("Bronze rows of trips not present in Silver",
-     row_count("bronze_gtfs_trips") - row_count("silver_trips")),
+     read_bronze("trips").count() - row_count("SV_Trips")),
     ("Bronze rows of stops not present in Silver",
-     row_count("bronze_gtfs_stops") - row_count("dim_station")),
+     read_bronze("stops").count() - row_count("SV_Stations")),
 ]
 
 print(f"{'Data quality check':<62}{'Violations':>11}  Result")
@@ -828,28 +965,23 @@ print(f"{len(quality_checks) - n_checks_failed} of {len(quality_checks)} checks 
 # COMMAND ----------
 
 # DBTITLE 1,Trains per day in the feed, by month and service group
-monthly_coverage_df = spark.sql(
-    f"""
-    SELECT date_format(d.service_date, 'yyyy-MM')                            AS month,
-           ROUND(COUNT(*) / COUNT(DISTINCT d.service_date), 0)               AS trains_per_day,
-           ROUND(COUNT(CASE WHEN t.service_group = 'Long distance' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
-               AS long_distance,
-           ROUND(COUNT(CASE WHEN t.service_group = 'Regional' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
-               AS regional,
-           ROUND(COUNT(CASE WHEN t.service_name = 'Urbanos de Lisboa' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
-               AS urbanos_lisboa,
-           ROUND(COUNT(CASE WHEN t.service_name = 'Urbanos do Porto' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
-               AS urbanos_porto,
-           ROUND(COUNT(CASE WHEN t.route_short_name = 'Linha de Cascais' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
-               AS of_which_linha_de_cascais
-    FROM {table_name('silver_service_days')} d
-    JOIN {table_name('silver_trips')} t ON d.service_id = t.service_id
-    GROUP BY date_format(d.service_date, 'yyyy-MM')
-    ORDER BY month
-    """
-)
-
-display(monthly_coverage_df)
+# MAGIC %sql
+# MAGIC SELECT date_format(d.service_date, 'yyyy-MM')                            AS month,
+# MAGIC        ROUND(COUNT(*) / COUNT(DISTINCT d.service_date), 0)               AS trains_per_day,
+# MAGIC        ROUND(COUNT(CASE WHEN t.service_group = 'Long distance' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
+# MAGIC            AS long_distance,
+# MAGIC        ROUND(COUNT(CASE WHEN t.service_group = 'Regional' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
+# MAGIC            AS regional,
+# MAGIC        ROUND(COUNT(CASE WHEN t.service_name = 'Urbanos de Lisboa' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
+# MAGIC            AS urbanos_lisboa,
+# MAGIC        ROUND(COUNT(CASE WHEN t.service_name = 'Urbanos do Porto' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
+# MAGIC            AS urbanos_porto,
+# MAGIC        ROUND(COUNT(CASE WHEN t.route_short_name = 'Linha de Cascais' THEN 1 END) / COUNT(DISTINCT d.service_date), 0)
+# MAGIC            AS of_which_linha_de_cascais
+# MAGIC FROM workspace.DL_CP.SV_Service_Days d
+# MAGIC JOIN workspace.DL_CP.SV_Trips t ON d.service_id = t.service_id
+# MAGIC GROUP BY date_format(d.service_date, 'yyyy-MM')
+# MAGIC ORDER BY month
 
 # COMMAND ----------
 
@@ -869,6 +1001,8 @@ display(monthly_coverage_df)
 
 # MAGIC %md
 # MAGIC ### 7.2 Gold tables
+# MAGIC Gold tables provide summarised data for a specific use. Each one is saved as a Delta table with the prefix `GD_`.
+# MAGIC
 # MAGIC The function below returns every train run of a reference week (one row per train and day). It is used for the
 # MAGIC present here and for the future in section 10, so both periods are measured in exactly the same way.
 
@@ -878,12 +1012,12 @@ display(monthly_coverage_df)
 def train_runs_of_week(week_start: str) -> DataFrame:
     """One row per train and operating day for the 7 days starting on `week_start` (a Monday)."""
     return (
-        spark.table(table_name("silver_service_days"))
+        spark.table(table_name("SV_Service_Days"))
         .filter(
             (F.col("service_date") >= F.lit(week_start).cast("date"))
             & (F.col("service_date") < F.date_add(F.lit(week_start).cast("date"), 7))
         )
-        .join(spark.table(table_name("silver_trips")), "service_id")
+        .join(spark.table(table_name("SV_Trips")), "service_id")
         .withColumn("day_of_week", F.dayofweek("service_date"))   # 1 = Sunday ... 7 = Saturday
         .withColumn("day_name", F.date_format("service_date", "EEEE"))
         .withColumn("is_weekend", F.dayofweek("service_date").isin(1, 7))
@@ -910,19 +1044,16 @@ def weekly_supply(week_start: str, period: str) -> DataFrame:
     )
 
 
-gold_weekly_supply_df = weekly_supply(PRESENT_WEEK_START, "Present").unionByName(
-    weekly_supply(FUTURE_WEEK_START, "Future")
-)
-
+# The table is created with the present week. The future week is added in section 10 with a MERGE.
 save_table(
-    gold_weekly_supply_df,
-    "gold_weekly_supply",
-    "GOLD - supply indicators per commercial service for the present and the future reference weeks",
+    weekly_supply(PRESENT_WEEK_START, "Present"),
+    "GD_Weekly_Supply",
+    "GOLD - supply indicators per commercial service and reference week (period = Present or Future)",
 )
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_daily_supply: trains and train-km per day from the download date onwards
+# DBTITLE 1,GD_Daily_Supply: trains and train-km per day from the download date onwards
 gold_daily_supply_df = spark.sql(
     f"""
     SELECT d.service_date,
@@ -930,8 +1061,8 @@ gold_daily_supply_df = spark.sql(
            t.service_name,
            COUNT(*)                     AS trains,
            ROUND(SUM(t.distance_km), 0) AS train_km
-    FROM {table_name('silver_service_days')} d
-    JOIN {table_name('silver_trips')} t ON d.service_id = t.service_id
+    FROM {table_name('SV_Service_Days')} d
+    JOIN {table_name('SV_Trips')} t ON d.service_id = t.service_id
     WHERE d.service_date >= DATE'{SNAPSHOT_DATE}'
     GROUP BY d.service_date, t.service_group, t.service_name
     """
@@ -939,18 +1070,18 @@ gold_daily_supply_df = spark.sql(
 
 save_table(
     gold_daily_supply_df,
-    "gold_daily_supply",
+    "GD_Daily_Supply",
     "GOLD - scheduled trains and train-km per day and commercial service, from the download date onwards",
 )
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_station_activity: train calls per station in the present week
+# DBTITLE 1,GD_Station_Activity: train calls per station in the present week
 present_runs = train_runs_of_week(PRESENT_WEEK_START)
 
 gold_station_activity_df = (
     present_runs.select("trip_id", "service_date", "is_weekend", "service_name", "route_short_name")
-    .join(spark.table(table_name("silver_stop_times")), "trip_id")
+    .join(spark.table(table_name("SV_Stop_Times")), "trip_id")
     .groupBy("station_id")
     .agg(
         F.count("*").alias("train_calls_per_week"),
@@ -958,7 +1089,7 @@ gold_station_activity_df = (
         F.countDistinct("service_name").alias("services"),
         F.concat_ws(", ", F.sort_array(F.collect_set("service_name"))).alias("service_list"),
     )
-    .join(spark.table(table_name("dim_station")), "station_id")
+    .join(spark.table(table_name("SV_Stations")), "station_id")
     .select(
         "station_id", "station_name", "latitude", "longitude",
         "train_calls_per_week", "train_calls_per_weekday", "services", "service_list",
@@ -967,17 +1098,17 @@ gold_station_activity_df = (
 
 save_table(
     gold_station_activity_df,
-    "gold_station_activity",
+    "GD_Station_Activity",
     "GOLD - trains calling at each station in the present reference week",
 )
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_hourly_departures: departures from all stations per hour of an average weekday
+# DBTITLE 1,GD_Hourly_Departures: departures from all stations per hour of an average weekday
 gold_hourly_departures_df = (
     present_runs.filter(~F.col("is_weekend"))
     .select("trip_id", "service_group")
-    .join(spark.table(table_name("silver_stop_times")).filter(~F.col("is_last_stop")), "trip_id")
+    .join(spark.table(table_name("SV_Stop_Times")).filter(~F.col("is_last_stop")), "trip_id")
     .withColumn("hour", F.floor(F.col("departure_sec") / 3600) % 24)
     .groupBy("hour", "service_group")
     .agg(F.round(F.count("*") / 5, 1).alias("departures_per_weekday"))
@@ -985,7 +1116,7 @@ gold_hourly_departures_df = (
 
 save_table(
     gold_hourly_departures_df,
-    "gold_hourly_departures",
+    "GD_Hourly_Departures",
     "GOLD - station departures per hour of the day and service group, average weekday of the present week",
 )
 
@@ -996,47 +1127,49 @@ save_table(
 
 # COMMAND ----------
 
-# DBTITLE 1,Supply per commercial service in the present week
-present_supply_df = spark.sql(
-    f"""
-    SELECT service_group,
-           service_name,
-           trains_per_week,
-           ROUND(100.0 * trains_per_week / SUM(trains_per_week) OVER (), 1)     AS pct_of_trains,
-           trains_per_weekday,
-           trains_per_weekend_day,
-           train_km_per_week,
-           ROUND(100.0 * train_km_per_week / SUM(train_km_per_week) OVER (), 1) AS pct_of_train_km,
-           avg_distance_km,
-           avg_duration_min,
-           avg_stops,
-           commercial_speed_kmh
-    FROM {table_name('gold_weekly_supply')}
-    WHERE period = 'Present'
-    ORDER BY service_order
-    """
-)
-
-display(present_supply_df)
+# MAGIC %md
+# MAGIC The Gold layer is explored with standard SQL (`%sql` cells), the natural option of business users.
 
 # COMMAND ----------
 
-# DBTITLE 1,Trains per day of the week and service group
-trains_by_day_df = spark.sql(
-    f"""
-    SELECT service_date,
-           date_format(service_date, 'EEEE')                               AS day_name,
-           SUM(trains)                                                     AS trains,
-           SUM(CASE WHEN service_group = 'Long distance' THEN trains END)  AS long_distance,
-           SUM(CASE WHEN service_group = 'Regional' THEN trains END)       AS regional,
-           SUM(CASE WHEN service_group = 'Urban' THEN trains END)          AS urban,
-           SUM(train_km)                                                   AS train_km
-    FROM {table_name('gold_daily_supply')}
-    WHERE service_date >= DATE'{PRESENT_WEEK_START}'
-      AND service_date < date_add(DATE'{PRESENT_WEEK_START}', 7)
-    GROUP BY service_date
-    ORDER BY service_date
-    """
+# DBTITLE 1,Supply per commercial service in the present week
+# MAGIC %sql
+# MAGIC SELECT service_group,
+# MAGIC        service_name,
+# MAGIC        trains_per_week,
+# MAGIC        ROUND(100.0 * trains_per_week / SUM(trains_per_week) OVER (), 1)     AS pct_of_trains,
+# MAGIC        trains_per_weekday,
+# MAGIC        trains_per_weekend_day,
+# MAGIC        train_km_per_week,
+# MAGIC        ROUND(100.0 * train_km_per_week / SUM(train_km_per_week) OVER (), 1) AS pct_of_train_km,
+# MAGIC        avg_distance_km,
+# MAGIC        avg_duration_min,
+# MAGIC        avg_stops,
+# MAGIC        commercial_speed_kmh
+# MAGIC FROM workspace.DL_CP.GD_Weekly_Supply
+# MAGIC WHERE period = 'Present'
+# MAGIC ORDER BY service_order
+
+# COMMAND ----------
+
+# DBTITLE 1,Trains per day of the week and service group (pivot)
+# The service groups, which are rows in the Gold table, are turned into columns with pivot
+trains_by_day_df = (
+    spark.table(table_name("GD_Daily_Supply"))
+    .filter(
+        (F.col("service_date") >= F.lit(PRESENT_WEEK_START).cast("date"))
+        & (F.col("service_date") < F.date_add(F.lit(PRESENT_WEEK_START).cast("date"), 7))
+    )
+    .groupBy("service_date")
+    .pivot("service_group", ["Long distance", "Regional", "Urban"])
+    .agg(F.sum("trains"))
+    .withColumnRenamed("Long distance", "long_distance")
+    .withColumnRenamed("Regional", "regional")
+    .withColumnRenamed("Urban", "urban")
+    .withColumn("trains", F.col("long_distance") + F.col("regional") + F.col("urban"))
+    .withColumn("day_name", F.date_format("service_date", "EEEE"))
+    .select("service_date", "day_name", "trains", "long_distance", "regional", "urban")
+    .orderBy("service_date")
 )
 
 display(trains_by_day_df)
@@ -1069,7 +1202,7 @@ hourly_departures_df = spark.sql(
            SUM(CASE WHEN service_group = 'Urban' THEN departures_per_weekday ELSE 0 END)         AS urban,
            SUM(CASE WHEN service_group = 'Regional' THEN departures_per_weekday ELSE 0 END)      AS regional,
            SUM(CASE WHEN service_group = 'Long distance' THEN departures_per_weekday ELSE 0 END) AS long_distance
-    FROM {table_name('gold_hourly_departures')}
+    FROM {table_name('GD_Hourly_Departures')}
     GROUP BY hour
     ORDER BY hour
     """
@@ -1098,7 +1231,7 @@ plt.show()
 
 # DBTITLE 1,The 15 busiest stations
 display(
-    spark.table(table_name("gold_station_activity"))
+    spark.table(table_name("GD_Station_Activity"))
     .select("station_name", "train_calls_per_week", "train_calls_per_weekday", "services", "service_list")
     .orderBy(F.desc("train_calls_per_week"), "station_name")
     .limit(15)
@@ -1108,7 +1241,7 @@ display(
 
 # DBTITLE 1,Chart: map of the network, stations sized by number of trains
 station_activity_pd = (
-    spark.table(table_name("gold_station_activity"))
+    spark.table(table_name("GD_Station_Activity"))
     .select("station_name", "latitude", "longitude", "train_calls_per_week")
     .orderBy(F.desc("train_calls_per_week"), "station_name")
     .toPandas()
@@ -1152,9 +1285,12 @@ plt.show()
 # MAGIC
 # MAGIC | Query | Source | Processing | Sink | Output mode |
 # MAGIC |---|---|---|---|---|
-# MAGIC | 1 | JSON files in the Volume | add file name and ingestion time | `bronze_departures_stream` | append |
-# MAGIC | 2 | `bronze_departures_stream` | validation, stateful deduplication, stream-static join with `dim_station` | `silver_departures_stream` | append |
-# MAGIC | 3 | `silver_departures_stream` | 1-hour tumbling window aggregation per station | `gold_station_departures_stream` | complete |
+# MAGIC | 1 | JSON files in the Volume | add file name and ingestion time | `BZ_Departures_Stream` | append |
+# MAGIC | 2 | `BZ_Departures_Stream` | validation, stateful deduplication, stream-static join with `SV_Stations` | `SV_Departures_Stream` | append |
+# MAGIC | 3 | `SV_Departures_Stream` | 1-hour tumbling window aggregation per station | `GD_Station_Departures_Stream` | complete |
+# MAGIC
+# MAGIC Each query has the three parts seen in class ABD08: a **source** (`readStream`), a **transformation** and a
+# MAGIC **sink** (`writeStream`) with an output mode and a checkpoint location.
 # MAGIC
 # MAGIC > **Scope note.** CP does not publish an open real-time feed, so the events are the **scheduled** departures replayed
 # MAGIC > as a stream. The pipeline is the one a real-time feed would use; only the origin of the events is simulated.
@@ -1163,19 +1299,21 @@ plt.show()
 # MAGIC * **Checkpointing.** Each query stores its progress in the Volume. Started again, it processes **only the new
 # MAGIC   data**, exactly once: this is what makes the pipeline incremental and fault tolerant.
 # MAGIC * **Micro-batches.** `maxFilesPerTrigger` limits how many files each micro-batch reads.
-# MAGIC * **Trigger.** Serverless compute supports the `availableNow` trigger: the query processes everything available,
-# MAGIC   in several micro-batches, and stops. Scheduling it periodically gives near real-time processing without an
-# MAGIC   always-on cluster.
+# MAGIC * **Trigger.** In class the queries ran continuously with the default trigger, on Colab. Databricks serverless
+# MAGIC   compute supports the `availableNow` trigger instead: the query processes everything available, in several
+# MAGIC   micro-batches, and stops. Scheduling it periodically gives near real-time processing without an always-on cluster.
+# MAGIC * **Sink.** The streams are written to Delta tables instead of the `memory` or `console` sinks used in class, so
+# MAGIC   that the results are stored in the lakehouse and can be queried with SQL.
 
 # COMMAND ----------
 
 # DBTITLE 1,Simulate the upstream system: departure events of one day, split in two drops
 stream_day_events_df = (
-    spark.table(table_name("silver_service_days"))
+    spark.table(table_name("SV_Service_Days"))
     .filter(F.col("service_date") == F.lit(STREAM_DAY).cast("date"))
-    .join(spark.table(table_name("silver_trips")).select("service_id", "trip_id", "train_number", "service_name"),
+    .join(spark.table(table_name("SV_Trips")).select("service_id", "trip_id", "train_number", "service_name"),
           "service_id")
-    .join(spark.table(table_name("silver_stop_times")).filter(~F.col("is_last_stop")), "trip_id")
+    .join(spark.table(table_name("SV_Stop_Times")).filter(~F.col("is_last_stop")), "trip_id")
     .select(
         F.concat_ws("|", F.col("service_date").cast("string"), "trip_id", F.col("stop_sequence").cast("string"))
         .alias("event_id"),
@@ -1199,7 +1337,7 @@ drop_2_df = stream_day_events_df.filter(F.col("scheduled_departure") >= F.lit(sp
 
 def land_events(df: DataFrame) -> None:
     """Write a set of departure events to the landing zone as new JSON files."""
-    df.repartition(FILES_PER_DROP).write.mode("append").json(LANDING_PATH)
+    df.repartition(FILES_PER_DROP).write.mode("append").json(DL_Landing_Path)
 
 
 print(f"Departure events of {STREAM_DAY}: {stream_day_events_df.count():,}")
@@ -1224,7 +1362,7 @@ departure_event_schema = StructType(
 )
 
 
-def clean_departures(events: DataFrame, dim_station: DataFrame) -> DataFrame:
+def clean_departures(events: DataFrame, stations_ref: DataFrame) -> DataFrame:
     """Silver logic for departure events. Works for batch and for streaming DataFrames."""
     return (
         events.filter(
@@ -1233,7 +1371,7 @@ def clean_departures(events: DataFrame, dim_station: DataFrame) -> DataFrame:
             & F.col("scheduled_departure").isNotNull()
         )
         .dropDuplicates(["event_id"])
-        .join(F.broadcast(dim_station.select("station_id", "station_name")), "station_id", "left")
+        .join(F.broadcast(stations_ref.select("station_id", "station_name")), "station_id", "left")
         .select(
             "event_id",
             F.col("service_date").cast("date").alias("service_date"),
@@ -1272,63 +1410,68 @@ def hourly_station_departures(departures: DataFrame) -> DataFrame:
 
 
 def start_bronze_stream():
-    """Query 1: JSON files in the landing zone -> bronze_departures_stream (append)."""
+    """Query 1: JSON files in the landing zone -> BZ_Departures_Stream (append)."""
     events = (
         spark.readStream.format("json")
         .schema(departure_event_schema)
         .option("maxFilesPerTrigger", MAX_FILES_PER_TRIGGER)
-        .load(LANDING_PATH)
+        .load(DL_Landing_Path)
         .withColumn("_source_file", F.col("_metadata.file_path"))
         .withColumn("_ingested_at", F.current_timestamp())
     )
     return (
         events.writeStream.format("delta")
+        .queryName("q_bronze_departures")
         .outputMode("append")
-        .option("checkpointLocation", f"{CHECKPOINT_PATH}/bronze_departures_stream")
+        .option("checkpointLocation", f"{DL_Checkpoint_Path}/bronze_departures_stream")
         .trigger(availableNow=True)
-        .toTable(table_name("bronze_departures_stream"))
+        .toTable(table_name("BZ_Departures_Stream"))
     )
 
 
 def start_silver_stream():
-    """Query 2: bronze_departures_stream -> silver_departures_stream (append)."""
-    bronze_stream = spark.readStream.table(table_name("bronze_departures_stream"))
-    silver_stream = clean_departures(bronze_stream, spark.table(table_name("dim_station")))
+    """Query 2: BZ_Departures_Stream -> SV_Departures_Stream (append)."""
+    bronze_stream = spark.readStream.table(table_name("BZ_Departures_Stream"))
+    silver_stream = clean_departures(bronze_stream, spark.table(table_name("SV_Stations")))
     return (
         silver_stream.writeStream.format("delta")
+        .queryName("q_silver_departures")
         .outputMode("append")
-        .option("checkpointLocation", f"{CHECKPOINT_PATH}/silver_departures_stream")
+        .option("checkpointLocation", f"{DL_Checkpoint_Path}/silver_departures_stream")
         .trigger(availableNow=True)
-        .toTable(table_name("silver_departures_stream"))
+        .toTable(table_name("SV_Departures_Stream"))
     )
 
 
 def start_gold_stream():
-    """Query 3: silver_departures_stream -> gold_station_departures_stream (complete)."""
-    silver_stream = spark.readStream.table(table_name("silver_departures_stream"))
+    """Query 3: SV_Departures_Stream -> GD_Station_Departures_Stream (complete)."""
+    silver_stream = spark.readStream.table(table_name("SV_Departures_Stream"))
     return (
         hourly_station_departures(silver_stream)
         .writeStream.format("delta")
+        .queryName("q_gold_station_departures")
         .outputMode("complete")
-        .option("checkpointLocation", f"{CHECKPOINT_PATH}/gold_station_departures_stream")
+        .option("checkpointLocation", f"{DL_Checkpoint_Path}/gold_station_departures_stream")
         .trigger(availableNow=True)
-        .toTable(table_name("gold_station_departures_stream"))
+        .toTable(table_name("GD_Station_Departures_Stream"))
     )
 
 
 def run_streaming_pipeline(label: str) -> None:
     """Run the three queries in sequence until all available data is processed."""
     for start_query in (start_bronze_stream, start_silver_stream, start_gold_stream):
-        start_query().awaitTermination()
+        query = start_query()
+        query.awaitTermination()
+        print(f"Query {query.name:<26}: finished, active = {query.isActive}")
     print(f"[{label}] streaming tables after the run:")
-    for name in ("bronze_departures_stream", "silver_departures_stream", "gold_station_departures_stream"):
+    for name in ("BZ_Departures_Stream", "SV_Departures_Stream", "GD_Station_Departures_Stream"):
         print(f"  {name:<32}: {row_count(name):>8,} rows")
 
 
 def show_departure_board() -> None:
     """Departures per hour at the reference station, read from the streaming Gold table."""
     display(
-        spark.table(table_name("gold_station_departures_stream"))
+        spark.table(table_name("GD_Station_Departures_Stream"))
         .filter(F.col("station_name") == DEPARTURE_BOARD_STATION)
         .select(
             "station_name",
@@ -1352,7 +1495,7 @@ land_events(drop_1_df)
 run_streaming_pipeline("after drop 1")
 
 bronze_stream_version_after_drop_1 = (
-    spark.sql(f"DESCRIBE HISTORY {table_name('bronze_departures_stream')}")
+    spark.sql(f"DESCRIBE HISTORY {table_name('BZ_Departures_Stream')}")
     .agg(F.max("version"))
     .first()[0]
 )
@@ -1391,7 +1534,7 @@ show_departure_board()
 
 # DBTITLE 1,Delta history of the streaming Bronze table: one commit per micro-batch
 display(
-    spark.sql(f"DESCRIBE HISTORY {table_name('bronze_departures_stream')}")
+    spark.sql(f"DESCRIBE HISTORY {table_name('BZ_Departures_Stream')}")
     .select(
         "version",
         "timestamp",
@@ -1413,19 +1556,19 @@ display(
 # DBTITLE 1,Compare the streaming tables with a batch computation
 # The batch results are saved as tables, so both sides of the comparison are read from Delta.
 save_table(
-    clean_departures(stream_day_events_df, spark.table(table_name("dim_station"))),
-    "silver_departures_batch",
+    clean_departures(stream_day_events_df, spark.table(table_name("SV_Stations"))),
+    "SV_Departures_Batch",
     "SILVER - departure events of the replayed day computed in batch (control for the streaming pipeline)",
 )
-batch_silver = spark.table(table_name("silver_departures_batch"))
+batch_silver = spark.table(table_name("SV_Departures_Batch"))
 save_table(
     hourly_station_departures(batch_silver),
-    "gold_station_departures_batch",
+    "GD_Station_Departures_Batch",
     "GOLD - departures per station and hour computed in batch (control for the streaming pipeline)",
 )
-batch_gold = spark.table(table_name("gold_station_departures_batch"))
-stream_silver = spark.table(table_name("silver_departures_stream"))
-stream_gold = spark.table(table_name("gold_station_departures_stream"))
+batch_gold = spark.table(table_name("GD_Station_Departures_Batch"))
+stream_silver = spark.table(table_name("SV_Departures_Stream"))
+stream_gold = spark.table(table_name("GD_Station_Departures_Stream"))
 
 n_batch_events = batch_silver.count()
 n_stream_events = stream_silver.count()
@@ -1461,9 +1604,11 @@ print(f"\nStreaming results identical to batch results : {'YES' if streaming_mat
 # MAGIC * **Edges** are directed sections between two **consecutive stops** of a train, **weighted** by the number of
 # MAGIC   trains that run them in the week.
 # MAGIC
-# MAGIC Vertices and edges are stored as two DataFrames with the `id` / `src` / `dst` convention used by GraphFrames.
-# MAGIC Serverless compute cannot install the GraphFrames JVM library, so the graph algorithms are written directly with
-# MAGIC **DataFrame joins and aggregations**, which is also what a graph library does internally.
+# MAGIC Vertices and edges are stored as two DataFrames with the `id` / `src` / `dst` convention of GraphFrames, used in
+# MAGIC class ABD09. In class GraphFrames ran on Colab, because it needs a JVM package that serverless compute cannot
+# MAGIC install. Here the same operations (degrees, filters, motifs, subgraphs, breadth-first search and PageRank) are
+# MAGIC written directly with **DataFrame joins and aggregations**, as in the PageRank example of class ABD06. This is
+# MAGIC also what a graph library does internally.
 
 # COMMAND ----------
 
@@ -1471,7 +1616,7 @@ print(f"\nStreaming results identical to batch results : {'YES' if streaming_mat
 graph_edges_df = (
     train_runs_of_week(PRESENT_WEEK_START)
     .select("trip_id", "service_name")
-    .join(spark.table(table_name("silver_trip_segments")), "trip_id")
+    .join(spark.table(table_name("SV_Trip_Segments")), "trip_id")
     .groupBy(F.col("from_station_id").alias("src"), F.col("to_station_id").alias("dst"))
     .agg(
         F.count("*").alias("weight"),
@@ -1483,25 +1628,25 @@ graph_edges_df = (
 
 save_table(
     graph_edges_df,
-    "gold_graph_edges",
+    "GD_Graph_Edges",
     "GOLD graph - directed section between consecutive stops, weight = trains in the present week",
 )
-edges = spark.table(table_name("gold_graph_edges"))
+edges = spark.table(table_name("GD_Graph_Edges"))
 
 graph_vertices_df = (
     edges.select(F.col("src").alias("id"))
     .union(edges.select(F.col("dst").alias("id")))
     .distinct()
     .join(
-        spark.table(table_name("dim_station")).select(
+        spark.table(table_name("SV_Stations")).select(
             F.col("station_id").alias("id"), "station_name", "latitude", "longitude"
         ),
         "id",
     )
 )
 
-save_table(graph_vertices_df, "gold_graph_vertices", "GOLD graph - one vertex per station served in the present week")
-vertices = spark.table(table_name("gold_graph_vertices"))
+save_table(graph_vertices_df, "GD_Graph_Vertices", "GOLD graph - one vertex per station served in the present week")
+vertices = spark.table(table_name("GD_Graph_Vertices"))
 
 n_vertices = vertices.count()
 n_edges = edges.count()
@@ -1515,6 +1660,8 @@ print(f"Density                    : {n_edges / (n_vertices * (n_vertices - 1)):
 # MAGIC ### 9.1 Degrees: terminals, through stations and junctions
 # MAGIC * **Neighbours**: number of distinct stations directly connected to a station, in either direction.
 # MAGIC   One neighbour is the end of a line, two is a through station, three or more is a **junction** where lines meet.
+# MAGIC * **In-degree and out-degree**: number of edges that arrive at and leave the station (`inDegrees` and
+# MAGIC   `outDegrees` in GraphFrames).
 # MAGIC * **Weighted degree**: number of trains that depart from (out) or arrive at (in) the station per week.
 # MAGIC
 # MAGIC Because an edge joins consecutive *stops*, a fast train that does not call at intermediate stations creates a direct
@@ -1528,14 +1675,18 @@ neighbour_pairs = edges.select(F.col("src").alias("id"), F.col("dst").alias("nei
     edges.select(F.col("dst").alias("id"), F.col("src").alias("neighbour"))
 )
 neighbours = neighbour_pairs.groupBy("id").agg(F.countDistinct("neighbour").alias("neighbours"))
-out_degrees = edges.groupBy(F.col("src").alias("id")).agg(F.sum("weight").alias("trains_out"))
-in_degrees = edges.groupBy(F.col("dst").alias("id")).agg(F.sum("weight").alias("trains_in"))
+out_degrees = edges.groupBy(F.col("src").alias("id")).agg(
+    F.count("*").alias("out_degree"), F.sum("weight").alias("trains_out")
+)
+in_degrees = edges.groupBy(F.col("dst").alias("id")).agg(
+    F.count("*").alias("in_degree"), F.sum("weight").alias("trains_in")
+)
 
 station_degrees_df = (
     vertices.join(neighbours, "id", "left")
     .join(out_degrees, "id", "left")
     .join(in_degrees, "id", "left")
-    .fillna(0, subset=["neighbours", "trains_out", "trains_in"])
+    .fillna(0, subset=["neighbours", "out_degree", "in_degree", "trains_out", "trains_in"])
     .withColumn(
         "station_type",
         F.when(F.col("neighbours") <= 1, "Terminal")
@@ -1554,7 +1705,9 @@ display(
 
 # DBTITLE 1,Stations where the most services meet (largest number of neighbours)
 display(
-    station_degrees_df.select("station_name", "neighbours", "trains_out", "trains_in", "station_type")
+    station_degrees_df.select(
+        "station_name", "neighbours", "in_degree", "out_degree", "trains_out", "trains_in", "station_type"
+    )
     .orderBy(F.desc("neighbours"), F.desc("trains_out"), "station_name")
     .limit(10)
 )
@@ -1649,7 +1802,7 @@ station_pagerank_df = (
 
 save_table(
     station_pagerank_df,
-    "gold_station_pagerank",
+    "GD_Station_PageRank",
     "GOLD graph - PageRank, neighbours and weekly trains of each station",
 )
 
@@ -1663,7 +1816,7 @@ top_hubs_df = spark.sql(
            neighbours,
            trains_out,
            trains_in
-    FROM {table_name('gold_station_pagerank')}
+    FROM {table_name('GD_Station_PageRank')}
     ORDER BY pagerank DESC, station_name
     LIMIT 15
     """
@@ -1694,9 +1847,171 @@ plt.show()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 9.3 The busiest sections of the network
+# MAGIC ### 9.3 Subgraph: the long-distance network
+# MAGIC A subgraph is obtained by filtering the edges and dropping the vertices left without any edge (`filterEdges` and
+# MAGIC `dropIsolatedVertices` in GraphFrames). Keeping only the sections run by Alfa Pendular and Intercidades trains
+# MAGIC gives the long-distance network of the country.
+
+# COMMAND ----------
+
+# DBTITLE 1,Long-distance subgraph: sections run by Alfa Pendular and Intercidades
+long_distance_edges_df = (
+    train_runs_of_week(PRESENT_WEEK_START)
+    .filter(F.col("service_group") == "Long distance")
+    .select("trip_id")
+    .join(spark.table(table_name("SV_Trip_Segments")), "trip_id")
+    .groupBy(F.col("from_station_id").alias("src"), F.col("to_station_id").alias("dst"))
+    .agg(F.count("*").alias("weight"))
+)
+long_distance_vertices_df = (
+    long_distance_edges_df.select(F.col("src").alias("id"))
+    .union(long_distance_edges_df.select(F.col("dst").alias("id")))
+    .distinct()
+    .join(vertices.select("id", "station_name"), "id")
+)
+
+n_ld_vertices = long_distance_vertices_df.count()
+n_ld_edges = long_distance_edges_df.count()
+print(f"Full graph          : {n_vertices:>4,} stations, {n_edges:>5,} directed sections")
+print(f"Long-distance graph : {n_ld_vertices:>4,} stations, {n_ld_edges:>5,} directed sections")
+
+# Stations of the subgraph with the most long-distance trains departing per week
+display(
+    long_distance_edges_df.groupBy(F.col("src").alias("id"))
+    .agg(F.count("*").alias("out_degree"), F.sum("weight").alias("long_distance_trains_out"))
+    .join(long_distance_vertices_df, "id")
+    .select("station_name", "out_degree", "long_distance_trains_out")
+    .orderBy(F.desc("long_distance_trains_out"), "station_name")
+    .limit(10)
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 9.4 Breadth-first search: how far is every station from Lisbon?
+# MAGIC Breadth-first search (BFS) finds the shortest path between vertices, measured in number of edges. In this graph
+# MAGIC one edge is one run between two consecutive stops of some train, so the result is the **minimum number of train
+# MAGIC stops** needed to reach each station, whatever the trains used.
+# MAGIC
+# MAGIC The search starts at Lisboa Oriente and advances one level at a time: the stations reached in the previous level
+# MAGIC (the *frontier*) are joined with the edges to find the stations one stop further. Each level is one distributed
+# MAGIC join. The set of visited stations is small, so it is kept on the driver, as in the PageRank implementation.
+# MAGIC
+# MAGIC Stations that are never reached are **not connected** to Lisbon by CP trains alone.
+
+# COMMAND ----------
+
+# DBTITLE 1,Breadth-first search implemented with DataFrames
+def breadth_first_search(edges: DataFrame, source_id: str, max_hops: int) -> DataFrame:
+    """BFS from `source_id`. Returns one row per reached vertex: [id, hops, previous_id]."""
+    visited = {source_id: (0, None)}   # id -> (hops, previous vertex on a shortest path)
+    frontier = [source_id]
+
+    for hop in range(1, max_hops + 1):
+        frontier_df = spark.createDataFrame([(v,) for v in frontier], "src STRING")
+        # Distributed step: all the edges that leave the frontier
+        reached = edges.join(frontier_df, "src").select("src", "dst").collect()
+
+        new_vertices = {}
+        for row in sorted(reached, key=lambda r: (r["dst"], r["src"])):   # sorted, so the result is deterministic
+            if row["dst"] not in visited and row["dst"] not in new_vertices:
+                new_vertices[row["dst"]] = (hop, row["src"])
+        if not new_vertices:
+            break
+        visited.update(new_vertices)
+        frontier = list(new_vertices)
+
+    return spark.createDataFrame(
+        [(v, hops, previous) for v, (hops, previous) in visited.items()],
+        "id STRING, hops INT, previous_id STRING",
+    )
+
+
+source_station_id = vertices.filter(F.col("station_name") == BFS_SOURCE_STATION).first()["id"]
+bfs_df = breadth_first_search(edges, source_station_id, BFS_MAX_HOPS)
+
+station_hops_df = (
+    vertices.select("id", "station_name")
+    .join(bfs_df, "id", "left")
+    .join(vertices.select(F.col("id").alias("previous_id"), F.col("station_name").alias("previous_station")),
+          "previous_id", "left")
+    .select("id", "station_name", "hops", "previous_id", "previous_station")
+)
+
+save_table(
+    station_hops_df,
+    "GD_Station_Hops",
+    f"GOLD graph - minimum number of train stops from {BFS_SOURCE_STATION} to each station (NULL = not reachable)",
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,Number of stations by distance from Lisboa Oriente
+# MAGIC %sql
+# MAGIC SELECT CASE
+# MAGIC            WHEN hops IS NULL THEN '6 - not reachable'
+# MAGIC            WHEN hops = 0 THEN '0 - origin'
+# MAGIC            WHEN hops <= 2 THEN '1 - 1 to 2 stops'
+# MAGIC            WHEN hops <= 5 THEN '2 - 3 to 5 stops'
+# MAGIC            WHEN hops <= 10 THEN '3 - 6 to 10 stops'
+# MAGIC            WHEN hops <= 20 THEN '4 - 11 to 20 stops'
+# MAGIC            ELSE '5 - more than 20 stops'
+# MAGIC        END                                                   AS distance_from_lisboa_oriente,
+# MAGIC        COUNT(*)                                              AS stations,
+# MAGIC        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1)    AS pct_of_stations
+# MAGIC FROM workspace.DL_CP.GD_Station_Hops
+# MAGIC GROUP BY 1
+# MAGIC ORDER BY 1
+
+# COMMAND ----------
+
+# DBTITLE 1,Stations that cannot be reached from Lisboa Oriente with CP trains
+unreachable_df = spark.table(table_name("GD_Station_Hops")).filter(F.col("hops").isNull())
+n_unreachable = unreachable_df.count()
+print(f"Stations not reachable from {BFS_SOURCE_STATION}: {n_unreachable}")
+
+display(
+    unreachable_df.join(
+        spark.table(table_name("GD_Station_Activity")).select(F.col("station_id").alias("id"), "service_list"), "id"
+    )
+    .select("station_name", "service_list")
+    .orderBy("station_name")
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC **Reading the result.** Most of the network is within ten train stops of Lisboa Oriente. The stations that are
+# MAGIC never reached belong to two lines: the **Cascais line** of the Lisbon urban services and the **Vouga line** of the
+# MAGIC regional services. In the timetable they share no station with any other line, so in the graph they are separate
+# MAGIC components: a passenger needs another transport mode, or a walk between two different stations, to connect.
+# MAGIC This is a structural property of the network that only a graph traversal reveals.
+
+# COMMAND ----------
+
+# DBTITLE 1,Shortest paths from Lisboa Oriente, rebuilt from the BFS result
+hops_by_id = {row["id"]: row for row in spark.table(table_name("GD_Station_Hops")).collect()}
+id_by_name = {row["station_name"]: row["id"] for row in hops_by_id.values()}
+
+for target in BFS_TARGET_STATIONS:
+    current = hops_by_id[id_by_name[target]]
+    if current["hops"] is None:
+        print(f"{BFS_SOURCE_STATION} -> {target}: not reachable")
+        continue
+    path = [current["station_name"]]
+    while current["previous_id"] is not None:
+        current = hops_by_id[current["previous_id"]]
+        path.append(current["station_name"])
+    print(f"{BFS_SOURCE_STATION} -> {target}: {len(path) - 1} stops")
+    print("   " + " > ".join(reversed(path)) + "\n")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 9.5 Motif: the busiest sections of the network
 # MAGIC The edges with the largest weight are the sections of track that carry the most trains. Joining the edge table
-# MAGIC with itself (a graph *motif* query: A -> B and B -> A) gives the traffic in both directions.
+# MAGIC with itself is the motif `(a)-[e1]->(b); (b)-[e2]->(a)` of GraphFrames: it finds the pairs of stations connected
+# MAGIC in both directions and gives the traffic of each direction.
 
 # COMMAND ----------
 
@@ -1710,10 +2025,10 @@ busiest_sections_df = spark.sql(
            ab.weight + ba.weight                         AS trains_per_week,
            ROUND((ab.weight + ba.weight) / 7.0, 0)       AS trains_per_day,
            ab.distance_km
-    FROM {table_name('gold_graph_edges')} ab
-    JOIN {table_name('gold_graph_edges')} ba ON ab.src = ba.dst AND ab.dst = ba.src
-    JOIN {table_name('gold_graph_vertices')} a ON ab.src = a.id
-    JOIN {table_name('gold_graph_vertices')} b ON ab.dst = b.id
+    FROM {table_name('GD_Graph_Edges')} ab
+    JOIN {table_name('GD_Graph_Edges')} ba ON ab.src = ba.dst AND ab.dst = ba.src
+    JOIN {table_name('GD_Graph_Vertices')} a ON ab.src = a.id
+    JOIN {table_name('GD_Graph_Vertices')} b ON ab.dst = b.id
     WHERE a.station_name < b.station_name
     ORDER BY trains_per_week DESC, station_a, station_b
     LIMIT 10
@@ -1746,7 +2061,7 @@ daily_trains_df = spark.sql(
            SUM(CASE WHEN service_name = 'Urbanos de Lisboa' THEN trains END) AS urbanos_lisboa,
            SUM(CASE WHEN service_name IN ('Urbanos do Porto', 'Urbanos de Coimbra') THEN trains END)
                AS urbanos_porto_coimbra
-    FROM {table_name('gold_daily_supply')}
+    FROM {table_name('GD_Daily_Supply')}
     GROUP BY service_date
     ORDER BY service_date
     """
@@ -1772,6 +2087,45 @@ plt.show()
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### Adding the future week to the Gold table with MERGE
+# MAGIC `GD_Weekly_Supply` was created in section 7 with the present week. The indicators of the future week are now
+# MAGIC computed with the same function and **merged** into the table: rows that already exist for the same period and
+# MAGIC service are updated, the others are inserted. A MERGE makes the load idempotent, because running it twice does
+# MAGIC not duplicate rows, and it is only possible because the table is in Delta format.
+
+# COMMAND ----------
+
+# DBTITLE 1,MERGE the future week into GD_Weekly_Supply
+weekly_supply_version_before_merge = (
+    spark.sql(f"DESCRIBE HISTORY {table_name('GD_Weekly_Supply')}").agg(F.max("version")).first()[0]
+)
+
+weekly_supply(FUTURE_WEEK_START, "Future").createOrReplaceTempView("future_week_supply")
+
+spark.sql(
+    f"""
+    MERGE INTO {table_name('GD_Weekly_Supply')} AS target
+    USING future_week_supply AS source
+       ON target.period = source.period AND target.service_name = source.service_name
+    WHEN MATCHED THEN
+      UPDATE SET *
+    WHEN NOT MATCHED THEN
+      INSERT *
+    """
+).display()
+
+# COMMAND ----------
+
+# DBTITLE 1,Rows of GD_Weekly_Supply per period after the MERGE
+# MAGIC %sql
+# MAGIC SELECT period, week_start, COUNT(*) AS services, SUM(trains_per_week) AS trains_per_week
+# MAGIC FROM workspace.DL_CP.GD_Weekly_Supply
+# MAGIC GROUP BY period, week_start
+# MAGIC ORDER BY week_start
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ### 10.1 How complete is the published 2027 timetable?
 # MAGIC The chart shows a sudden drop of some services on the day of the timetable change. A service that disappears
 # MAGIC completely from one day to the next has not been cancelled: **its new timetable has not been published yet**.
@@ -1789,10 +2143,10 @@ plt.show()
 publication_status_df = spark.sql(
     f"""
     WITH present AS (
-        SELECT * FROM {table_name('gold_weekly_supply')} WHERE period = 'Present'
+        SELECT * FROM {table_name('GD_Weekly_Supply')} WHERE period = 'Present'
     ),
     future AS (
-        SELECT * FROM {table_name('gold_weekly_supply')} WHERE period = 'Future'
+        SELECT * FROM {table_name('GD_Weekly_Supply')} WHERE period = 'Future'
     )
     SELECT p.service_order,
            p.service_group,
@@ -1833,10 +2187,10 @@ print(f"Services compared: {published_services}")
 supply_comparison_df = spark.sql(
     f"""
     WITH present AS (
-        SELECT * FROM {table_name('gold_weekly_supply')} WHERE period = 'Present'
+        SELECT * FROM {table_name('GD_Weekly_Supply')} WHERE period = 'Present'
     ),
     future AS (
-        SELECT * FROM {table_name('gold_weekly_supply')} WHERE period = 'Future'
+        SELECT * FROM {table_name('GD_Weekly_Supply')} WHERE period = 'Future'
     )
     SELECT p.service_name,
            p.trains_per_week                       AS trains_week_present,
@@ -1866,10 +2220,11 @@ display(supply_comparison_df)
 # MAGIC The function below finds, for a reference week, every train that calls at both stations of a connection in the
 # MAGIC right order (a self-join of the stop times) and measures the time between departure and arrival.
 # MAGIC Only the long-distance services are included, because their 2027 timetable is published.
+# MAGIC A user-defined function (UDF) formats the result as hours and minutes.
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_journey_times: direct trains and journey time per connection
+# DBTITLE 1,GD_Journey_Times: direct trains and journey time per connection
 CONNECTIONS = [
     ("Lisboa Santa Apolonia", "Porto Campanha"),
     ("Porto Campanha", "Lisboa Santa Apolonia"),
@@ -1883,13 +2238,13 @@ connections_df = spark.createDataFrame(CONNECTIONS, "origin_station STRING, dest
 
 def journey_times(week_start: str, period: str) -> DataFrame:
     """Direct long-distance trains and journey time per connection for the weekdays of a reference week."""
-    station_names = spark.table(table_name("dim_station")).select("station_id", "station_name")
+    station_names = spark.table(table_name("SV_Stations")).select("station_id", "station_name")
     calls = (
         train_runs_of_week(week_start)
         .filter(~F.col("is_weekend"))
         .filter(F.col("service_group") == "Long distance")
         .select("trip_id", "service_date", "service_name")
-        .join(spark.table(table_name("silver_stop_times")), "trip_id")
+        .join(spark.table(table_name("SV_Stop_Times")), "trip_id")
         .join(station_names, "station_id")
     )
     origin_calls = calls.select(
@@ -1926,7 +2281,7 @@ gold_journey_times_df = journey_times(PRESENT_WEEK_START, "Present").unionByName
 
 save_table(
     gold_journey_times_df,
-    "gold_journey_times",
+    "GD_Journey_Times",
     "GOLD - direct trains per weekday and journey time on the main long-distance connections, present and future",
 )
 
@@ -1936,10 +2291,10 @@ save_table(
 journey_comparison_df = spark.sql(
     f"""
     WITH present AS (
-        SELECT * FROM {table_name('gold_journey_times')} WHERE period = 'Present'
+        SELECT * FROM {table_name('GD_Journey_Times')} WHERE period = 'Present'
     ),
     future AS (
-        SELECT * FROM {table_name('gold_journey_times')} WHERE period = 'Future'
+        SELECT * FROM {table_name('GD_Journey_Times')} WHERE period = 'Future'
     )
     SELECT COALESCE(p.origin_station, f.origin_station)           AS origin,
            COALESCE(p.destination_station, f.destination_station) AS destination,
@@ -1961,7 +2316,32 @@ journey_comparison_df = spark.sql(
     """
 )
 
-display(journey_comparison_df)
+
+# A UDF formats the minutes as hours and minutes, which is how a passenger reads a journey time
+def minutes_to_hours(minutes):
+    """Format a number of minutes as 'XhMM' (for example 168 -> '2h48')."""
+    if minutes is None:
+        return None
+    return f"{int(minutes) // 60}h{int(minutes) % 60:02d}"
+
+
+minutes_to_hours_udf = F.udf(minutes_to_hours, StringType())
+
+display(
+    journey_comparison_df.select(
+        "origin",
+        "destination",
+        "service",
+        "trains_weekday_present",
+        "trains_weekday_future",
+        minutes_to_hours_udf("fastest_present_min").alias("fastest_present"),
+        minutes_to_hours_udf("fastest_future_min").alias("fastest_future"),
+        "fastest_change_min",
+        minutes_to_hours_udf("average_present_min").alias("average_present"),
+        minutes_to_hours_udf("average_future_min").alias("average_future"),
+        "average_change_min",
+    )
+)
 
 # COMMAND ----------
 
@@ -1983,7 +2363,7 @@ annual_passengers_df = spark.sql(
         SELECT year,
                MAX(CASE WHEN unit = 'THS_PAS' THEN value END) / 1000.0 AS passengers_million,
                MAX(CASE WHEN unit = 'MIO_PKM' THEN value END)          AS passenger_km_million
-        FROM {table_name('silver_rail_passengers')}
+        FROM {table_name('SV_Rail_Passengers')}
         WHERE dataset = 'rail_pa_total' AND country_code = '{COUNTRY}'
         GROUP BY year
     )
@@ -2026,18 +2406,18 @@ quarterly_source_df = spark.sql(
            quarter,
            year * 4 + quarter      AS time_index,
            value / 1000.0          AS passengers_million
-    FROM {table_name('silver_rail_passengers')}
+    FROM {table_name('SV_Rail_Passengers')}
     WHERE dataset = 'rail_pa_quartal' AND country_code = '{COUNTRY}' AND unit = 'THS_PAS'
       AND value IS NOT NULL
     """
 )
 save_table(
     quarterly_source_df,
-    "silver_quarterly_passengers",
+    "SV_Quarterly_Passengers",
     f"SILVER - quarterly rail passengers (million) of country {COUNTRY}, input of the projection model",
 )
-quarterly_passengers_df = spark.table(table_name("silver_quarterly_passengers"))
-QUARTERLY_TABLE = table_name("silver_quarterly_passengers")
+quarterly_passengers_df = spark.table(table_name("SV_Quarterly_Passengers"))
+QUARTERLY_TABLE = table_name("SV_Quarterly_Passengers")
 
 last_actual = quarterly_passengers_df.orderBy(F.desc("time_index")).first()
 print(f"Quarterly observations : {quarterly_passengers_df.count()}")
@@ -2051,7 +2431,7 @@ recent_quarters_df = spark.sql(
            ROUND(passengers_million, 2) AS passengers_million,
            ROUND(100.0 * (passengers_million / LAG(passengers_million, 4) OVER (ORDER BY time_index) - 1), 1)
                AS growth_vs_same_quarter_last_year_pct
-    FROM {table_name('silver_quarterly_passengers')}
+    FROM {table_name('SV_Quarterly_Passengers')}
     """
 ).filter(F.col("year") >= TREND_START_YEAR + 1).orderBy("year", "quarter")
 
@@ -2142,7 +2522,7 @@ print(f"Mean error (bias)                     : {backtest_bias:+.1f}%  (positive
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_passenger_forecast: quarterly projection, scenario A
+# DBTITLE 1,GD_Passenger_Forecast: quarterly projection, scenario A
 gold_passenger_forecast_df = trend_seasonal_projection(
     TREND_START_YEAR, last_actual["year"], FORECAST_END_YEAR
 ).select(
@@ -2156,7 +2536,7 @@ gold_passenger_forecast_df = trend_seasonal_projection(
 
 save_table(
     gold_passenger_forecast_df,
-    "gold_passenger_forecast",
+    "GD_Passenger_Forecast",
     "GOLD - quarterly rail passengers in Portugal: observed values and trend + seasonality projection (scenario A)",
 )
 
@@ -2167,7 +2547,7 @@ pre_pandemic = spark.sql(
     f"""
     SELECT MAX(CASE WHEN year = {LONG_RUN_FIRST_YEAR} THEN value END) / 1000.0 AS passengers_first,
            MAX(CASE WHEN year = {LONG_RUN_LAST_YEAR} THEN value END) / 1000.0  AS passengers_last
-    FROM {table_name('silver_rail_passengers')}
+    FROM {table_name('SV_Rail_Passengers')}
     WHERE dataset = 'rail_pa_total' AND country_code = '{COUNTRY}' AND unit = 'THS_PAS'
     """
 ).first()
@@ -2193,7 +2573,7 @@ annual_scenarios_df = spark.sql(
            ROUND({last_complete_year_total} * POWER(1 + {pre_pandemic_growth}, year - {last_complete_year}), 1)
                AS scenario_b_long_run_pace,
            SUM(CASE WHEN is_projection THEN 1 ELSE 0 END)             AS projected_quarters
-    FROM {table_name('gold_passenger_forecast')}
+    FROM {table_name('GD_Passenger_Forecast')}
     WHERE year > {last_complete_year}
     GROUP BY year
     ORDER BY year
@@ -2209,7 +2589,7 @@ history_pd = (
     quarterly_passengers_df.select("year", "quarter", "passengers_million").orderBy("year", "quarter").toPandas()
 )
 projection_pd = (
-    spark.table(table_name("gold_passenger_forecast"))
+    spark.table(table_name("GD_Passenger_Forecast"))
     .filter(F.col("is_projection"))
     .orderBy("year", "quarter")
     .toPandas()
@@ -2258,13 +2638,13 @@ plt.show()
 
 # COMMAND ----------
 
-# DBTITLE 1,gold_passenger_growth_by_country: latest year compared with 2019
+# DBTITLE 1,GD_Passenger_Growth_by_Country: latest year compared with 2019
 gold_passenger_growth_df = spark.sql(
     f"""
     WITH passengers AS (
         SELECT p.country_code, c.country_name, p.year, p.value
-        FROM {table_name('silver_rail_passengers')} p
-        JOIN {table_name('dim_country')} c ON p.country_code = c.country_code
+        FROM {table_name('SV_Rail_Passengers')} p
+        JOIN {table_name('SV_Countries')} c ON p.country_code = c.country_code
         WHERE p.dataset = 'rail_pa_total' AND p.unit = 'THS_PAS' AND p.value IS NOT NULL
     ),
     latest AS (
@@ -2288,30 +2668,67 @@ gold_passenger_growth_df = spark.sql(
 
 save_table(
     gold_passenger_growth_df,
-    "gold_passenger_growth_by_country",
+    "GD_Passenger_Growth_by_Country",
     "GOLD - rail passengers per country: latest available year (2024 or later) compared with 2019",
 )
 
-display(spark.table(table_name("gold_passenger_growth_by_country")).orderBy("growth_rank").limit(12))
+# COMMAND ----------
+
+# DBTITLE 1,The 12 countries with the largest growth of rail passengers since 2019
+# MAGIC %sql
+# MAGIC SELECT growth_rank, country_name, latest_year, passengers_2019_million, passengers_latest_million, growth_since_2019_pct
+# MAGIC FROM workspace.DL_CP.GD_Passenger_Growth_by_Country
+# MAGIC ORDER BY growth_rank
+# MAGIC LIMIT 12
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 12. Delta Lake: audit history and time travel
-# MAGIC Every table of the project is a Delta table, so each write is an ACID transaction recorded in a log.
-# MAGIC This gives two capabilities that plain files in a data lake do not have:
-# MAGIC * **Audit**: what changed and when (`DESCRIBE HISTORY`, already used in section 8.3).
+# MAGIC ## 12. Delta Lake: MERGE, audit history and time travel
+# MAGIC The Silver and Gold tables of the project are Delta tables, so each write is an ACID transaction recorded in a log.
+# MAGIC This gives capabilities that plain files in a data lake do not have:
+# MAGIC * **Updates and merges**: `GD_Weekly_Supply` was loaded in two steps, the second one with a `MERGE` (section 10).
+# MAGIC * **Audit**: what changed and when (`DESCRIBE HISTORY`).
 # MAGIC * **Time travel**: query a table as it was at a previous version (`VERSION AS OF`), which is useful to reproduce
 # MAGIC   a report or to recover from a wrong load.
 
 # COMMAND ----------
 
+# DBTITLE 1,History of GD_Weekly_Supply: the initial load and the MERGE
+# MAGIC %sql
+# MAGIC DESCRIBE HISTORY workspace.DL_CP.GD_Weekly_Supply
+
+# COMMAND ----------
+
+# DBTITLE 1,Time travel: GD_Weekly_Supply before and after the MERGE
+before_merge = spark.sql(
+    f"""
+    SELECT period, COUNT(*) AS services, SUM(trains_per_week) AS trains_per_week
+    FROM {table_name('GD_Weekly_Supply')} VERSION AS OF {weekly_supply_version_before_merge}
+    GROUP BY period
+    """
+)
+print(f"GD_Weekly_Supply at version {weekly_supply_version_before_merge} (before the MERGE):")
+before_merge.show()
+
+print("GD_Weekly_Supply now:")
+spark.sql(
+    f"""
+    SELECT period, COUNT(*) AS services, SUM(trains_per_week) AS trains_per_week
+    FROM {table_name('GD_Weekly_Supply')}
+    GROUP BY period
+    ORDER BY period DESC
+    """
+).show()
+
+# COMMAND ----------
+
 # DBTITLE 1,Time travel: the streaming Bronze table before and after the second drop
 rows_after_drop_1 = spark.sql(
-    f"SELECT COUNT(*) FROM {table_name('bronze_departures_stream')} "
+    f"SELECT COUNT(*) FROM {table_name('BZ_Departures_Stream')} "
     f"VERSION AS OF {bronze_stream_version_after_drop_1}"
 ).first()[0]
-rows_now = row_count("bronze_departures_stream")
+rows_now = row_count("BZ_Departures_Stream")
 
 print(f"Version {bronze_stream_version_after_drop_1} (after drop 1) : {rows_after_drop_1:>8,} events")
 print(f"Current version           : {rows_now:>8,} events")
@@ -2319,19 +2736,24 @@ print(f"Events added by drop 2    : {rows_now - rows_after_drop_1:>8,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Catalogue of the tables created by the project
+# DBTITLE 1,Tables of the lakehouse schema
 display(
     spark.sql(f"SHOW TABLES IN {CATALOG}.{SCHEMA}")
     .filter(~F.col("isTemporary"))
     .select("tableName")
     .withColumn(
         "layer",
-        F.when(F.col("tableName").startswith("bronze"), "1 - Bronze")
-        .when(F.col("tableName").startswith("silver") | F.col("tableName").startswith("dim"), "2 - Silver")
+        F.when(F.lower("tableName").startswith("bz_"), "1 - Bronze (streaming)")
+        .when(F.lower("tableName").startswith("sv_"), "2 - Silver")
         .otherwise("3 - Gold"),
     )
     .orderBy("layer", "tableName")
 )
+
+# COMMAND ----------
+
+# DBTITLE 1,Folders of the data lake in the Volume
+display(dbutils.fs.ls(DL_Path))
 
 # COMMAND ----------
 
@@ -2350,7 +2772,7 @@ present_totals = spark.sql(
            SUM(CASE WHEN service_group = 'Urban' THEN trains_per_week END)           AS urban_trains,
            SUM(CASE WHEN service_group = 'Long distance' THEN trains_per_week END)   AS long_distance_trains,
            SUM(CASE WHEN service_group = 'Long distance' THEN train_km_per_week END) AS long_distance_km
-    FROM {table_name('gold_weekly_supply')}
+    FROM {table_name('GD_Weekly_Supply')}
     WHERE period = 'Present'
     """
 ).first()
@@ -2358,10 +2780,10 @@ weekday_trains = trains_by_day_df.filter(F.dayofweek("service_date").between(2, 
 weekend_trains = trains_by_day_df.filter(F.dayofweek("service_date").isin(1, 7)).agg(F.avg("trains")).first()[0]
 peak_hour = hourly_departures_df.orderBy(F.desc("all_services"), "hour").first()
 busiest_station = (
-    spark.table(table_name("gold_station_activity")).orderBy(F.desc("train_calls_per_week"), "station_name").first()
+    spark.table(table_name("GD_Station_Activity")).orderBy(F.desc("train_calls_per_week"), "station_name").first()
 )
-top_hub = spark.table(table_name("gold_station_pagerank")).orderBy(F.desc("pagerank"), "station_name").first()
-n_junctions = spark.table(table_name("gold_station_pagerank")).filter("station_type = 'Junction'").count()
+top_hub = spark.table(table_name("GD_Station_PageRank")).orderBy(F.desc("pagerank"), "station_name").first()
+n_junctions = spark.table(table_name("GD_Station_PageRank")).filter("station_type = 'Junction'").count()
 busiest_section = busiest_sections_df.first()
 status_counts = {
     row["publication_status"]: row["services"]
@@ -2378,9 +2800,9 @@ lisbon_porto = (
 )
 forecast_end = annual_scenarios_df.filter(F.col("year") == FORECAST_END_YEAR).first()
 portugal_growth = (
-    spark.table(table_name("gold_passenger_growth_by_country")).filter(F.col("country_code") == COUNTRY).first()
+    spark.table(table_name("GD_Passenger_Growth_by_Country")).filter(F.col("country_code") == COUNTRY).first()
 )
-n_countries_ranked = row_count("gold_passenger_growth_by_country")
+n_countries_ranked = row_count("GD_Passenger_Growth_by_Country")
 
 print("DATA")
 print(f"  {n_trips:,} timetable train runs expand to {n_service_days:,} train runs and {n_stop_events:,} stop events.")
@@ -2398,6 +2820,7 @@ print(f"  Streaming results identical to batch results: {'YES' if streaming_matc
       f" ({n_stream_events:,} departure events processed in two drops).")
 print("\nQ3 - PRESENT: the network")
 print(f"  {n_vertices:,} stations, {n_edges:,} directed sections, {n_junctions:,} junctions.")
+print(f"  {n_unreachable} stations cannot be reached from {BFS_SOURCE_STATION} with CP trains alone.")
 print(f"  Most important hub (PageRank): {top_hub['station_name']} ({top_hub['pagerank']}).")
 print(f"  Busiest section: {busiest_section['station_a']} - {busiest_section['station_b']}"
       f" ({busiest_section['trains_per_week']:,} trains per week, both directions).")
@@ -2424,8 +2847,9 @@ print(f"  {FORECAST_END_YEAR}: between {forecast_end['scenario_b_long_run_pace']
 # MAGIC %md
 # MAGIC ### What we built
 # MAGIC An end-to-end lakehouse on Databricks Free Edition that turns the public timetable of CP and the Eurostat passenger
-# MAGIC statistics into decision-ready indicators, using four processing styles of Apache Spark on one engine and one copy
-# MAGIC of the data: batch DataFrames, Spark SQL, Structured Streaming and graph analytics.
+# MAGIC statistics into decision-ready indicators. It is built as one pipeline that follows the ABD classes: files in a
+# MAGIC Unity Catalog Volume, a medallion architecture with data rules in Bronze and business rules in Silver, Gold tables
+# MAGIC explored with SQL, Structured Streaming, graph analytics and Delta Lake.
 # MAGIC
 # MAGIC ### Answers to the business questions
 # MAGIC * **Q1, the present supply.** CP's offer is dominated in number of trains by the urban services of Lisbon and Porto,
@@ -2437,7 +2861,9 @@ print(f"  {FORECAST_END_YEAR}: between {forecast_end['scenario_b_long_run_pace']
 # MAGIC * **Q3, the network.** PageRank and the degree metrics identify the stations that hold the network together:
 # MAGIC   the two main stations of Porto and Lisbon and the junctions where lines meet. The edge weights identify the
 # MAGIC   sections with the most trains, which are all in the Lisbon urban network, led by the Sintra line (section 9).
-# MAGIC   These are the places where a disruption affects the most trains.
+# MAGIC   These are the places where a disruption affects the most trains. The breadth-first search shows that most
+# MAGIC   stations are within ten train stops of Lisboa Oriente, and that the Cascais and Vouga lines are not connected
+# MAGIC   to the rest of the network.
 # MAGIC * **Q4, the future supply.** The 2027 timetable is published for the long-distance services and for the Lisbon
 # MAGIC   urban services, and it is still missing or incomplete for the remaining ones (section 10.1). Where it is
 # MAGIC   published, the number of trains is practically unchanged, and the scheduled journey between Lisbon and Porto
@@ -2463,8 +2889,10 @@ print(f"  {FORECAST_END_YEAR}: between {forecast_end['scenario_b_long_run_pace']
 # MAGIC   (`train_runs_of_week`), and the batch and the streaming results (`clean_departures`).
 # MAGIC * **Incremental processing is a property of the checkpoint**, not of the code: the same query, started again,
 # MAGIC   continues where it stopped.
-# MAGIC * **Graph algorithms are joins.** PageRank was written as a repeated join and aggregation that Spark distributes
-# MAGIC   like any other query.
+# MAGIC * **Graph algorithms are joins.** PageRank and breadth-first search were written as repeated joins and
+# MAGIC   aggregations that Spark distributes like any other query.
+# MAGIC * **Delta Lake** turns files into reliable tables: the same Gold table was loaded with a `MERGE`, audited with its
+# MAGIC   history and queried as it was before the change.
 # MAGIC
 # MAGIC ### Limitations
 # MAGIC * The timetable describes **scheduled** service. Delays, cancellations and strikes are not in the data.
@@ -2492,3 +2920,16 @@ print(f"  {FORECAST_END_YEAR}: between {forecast_end['scenario_b_long_run_pace']
 # MAGIC * Google, *General Transit Feed Specification (GTFS) Schedule Reference*.
 # MAGIC * Damji, J., Wenig, B., Das, T., Lee, D. (2020). *Learning Spark: Lightning-fast Data Analysis*. O'Reilly.
 # MAGIC * Chambers, B., Zaharia, M. (2018). *Spark: The Definitive Guide*. O'Reilly.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Clean the environment (optional)
+# MAGIC The cell below removes everything the project created. It is commented so that the tables stay available for
+# MAGIC exploration after **Run all**; the next run rebuilds everything anyway.
+
+# COMMAND ----------
+
+# DBTITLE 1,Drop the lakehouse schema and the data lake folders
+# spark.sql(f"DROP SCHEMA IF EXISTS {CATALOG}.{SCHEMA} CASCADE")
+# dbutils.fs.rm(DL_Path, True)
