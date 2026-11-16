@@ -3,12 +3,16 @@ name: run-analyzing-big-data
 description: Run, test and drive the Comboios de Portugal (CP) Databricks notebook project locally. Use to run the notebook, start the pipeline, build the PySpark/Delta environment, check that the notebook still works after an edit, or look at its charts (screenshots).
 ---
 
-# Run the CP rail notebook locally
+# Run the project notebooks locally
 
-The project is one Databricks notebook (`notebooks/ABD_Group_Project_CP_Rail_Present_and_Future.py`, Databricks
-source format) that reads nine files from `data/` (CP GTFS timetable and Eurostat passenger statistics). It cannot be
-run on Databricks from this container, so `local_test/run_local.py` executes **every cell** on a local Spark + Delta Lake
-session. `driver.sh` in this directory sets that up and runs it. Paths below are relative to the repository root.
+The submitted project is one Databricks notebook (`notebooks/ABD_Group_Project_Portugal_Air_Connectivity.py`,
+Databricks source format) that reads four files from `data_air/` (world airline routes and Eurostat air passenger
+statistics). It cannot be run on Databricks from this container, so `local_test/run_air.py` executes **every cell** on a
+local Spark + Delta Lake session. `driver.sh` in this directory sets that up and runs it. Paths below are relative to
+the repository root.
+
+Two earlier projects are kept in the repository and run the same way with `ABD_PROJECT=cp` (CP timetable,
+`local_test/run_local.py`) or `ABD_PROJECT=cp_delays` (`local_test/run_cp_delays.py`).
 
 ## Prerequisites
 
@@ -27,14 +31,14 @@ Maven Central (`spark.jars.packages`), so the network must allow `repo1.maven.or
 Each run prints the control lines and writes the full log and the charts:
 
 ```
-19 of 19 checks passed
-Streaming results identical to batch results : YES
+18 of 18 checks passed
 Sum of all ranks = 1.000000 (expected 1.0)
-LOCAL TEST PASSED: 76 cells executed (6 of them %sql), 6 figures rendered.
+Streaming results identical to batch results : YES
+LOCAL TEST PASSED: 81 cells executed (16 of them %sql), 6 figures rendered.
 ```
 
-* Log: `/tmp/abd_local_<mode>/run.log` (grep it for `^CELL ` to find a cell, or for the output of a section).
-* Charts: `/tmp/abd_local_<mode>/out/figure_1.png` to `figure_6.png`. Open them to check the notebook's plots.
+* Log: `/tmp/abd_<project>_<mode>/run.log` (grep it for `^CELL ` to find a cell, or for the output of a section).
+* Charts: `/tmp/abd_<project>_<mode>/out/figure_1.png` to `figure_6.png`. Open them to check the notebook's plots.
 * On failure the driver prints the last 25 lines of the log. The Java stack trace is long; the first
   `Error` / `Exception` line and the `CELL n:` line above it are what matter.
 
@@ -53,16 +57,18 @@ Catalog Volumes, serverless limits, the `availableNow` trigger on serverless).
 * **Substitutions are exact.** Each one asserts that its target text occurs exactly once in the notebook. If you edit
   `CATALOG = "workspace"`, `VOLUME_PATH = ...`, `SOURCE_PATH = ...` or the `CREATE VOLUME` line, update `SUBSTITUTIONS`
   or the run stops with `substitution target not found exactly once`.
-* **Expected numbers are asserted** at the end of `run_local.py` (548,614 train runs, 8,954,555 stop events, 19
-  data quality checks passed, 6 figures). A change to the data files or to the number of charts fails the run on
+* **Expected numbers are asserted** at the end of each harness (for the air project: 36,759 connections, 3,391
+  airports, 296 / 21,972 / 1,479,733 itineraries from Portugal, 6 figures). A change to the data files or to the number of charts fails the run on
   purpose; update the assertions after checking the new numbers.
-* **`%sql` cells are written as `# MAGIC %sql` with the table names `workspace.DL_CP.<table>`**; the harness rewrites
+* **`%sql` cells are written as `# MAGIC %sql` with the table names `workspace.<schema>.<table>`**; the harness rewrites
   `workspace.` to `spark_catalog.`. A `%sql` cell that uses another catalog name is not rewritten.
 * **Streaming batch/stream comparison needs saved tables.** Comparing a streaming result with a batch DataFrame built
   in the same cell failed on classic Spark with `[INTERNAL_ERROR] Couldn't find station_id ...`; the notebook saves the batch result
   as `SV_Departures_Batch` / `GD_Station_Departures_Batch` first.
-* **The feed is a rolling snapshot.** Numbers depend on the files in `data/` and on the fixed reference weeks
-  (2026-11-16 and 2027-01-18) in the notebook configuration cell, not on today's date.
+* **Summing a Eurostat series after renaming a code.** Mapping the old Madeira airport code `LPFU` to `LPMA` created
+  duplicated keys for 2006; the two half-year values must be added, not deduplicated (the data quality check on
+  duplicated observations catches this).
+* **The air run needs memory.** `run_air.py` sets `spark.driver.memory` to 3g for the 1.5 million itinerary join.
 
 ## Troubleshooting
 
@@ -75,7 +81,7 @@ Catalog Volumes, serverless limits, the `availableNow` trigger on serverless).
 
 ## Refreshing the data (not part of a normal run)
 
-`data/*.txt` is the unzipped `https://publico.cp.pt/gtfs/gtfs.zip`; `data/rail_pa_total.tsv` and
-`data/rail_pa_quartal.tsv` come from the Eurostat dissemination API (`.../sdmx/2.1/data/<dataset>?format=TSV`).
-The notebook's reference weeks, the expected numbers in `run_local.py` and the values in `README.md` are tied to the
-16 November 2026 snapshot, so a refresh means updating all three.
+`data_air/avia_par_pt.tsv.gz` comes from the Eurostat dissemination API
+(`.../sdmx/2.1/data/avia_par_pt?format=TSV&compressed=true`, host `ec.europa.eu`). The three CSV files come from the
+repository `optmstic/airport-network-route-analysis`. The expected numbers in `run_air.py`, `README.md` and
+`report/one_page_report.html` are tied to these files, so a refresh means updating all three.

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Portugal's air connectivity - one-page report</title>
+<style>
+  @page { size: A4; margin: 11mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 8.2pt; line-height: 1.27; color: #1c2430; margin: 0; }
+  h1 { font-size: 17pt; margin: 0; color: #12355b; }
+  .sub { font-size: 9.2pt; color: #46566b; margin: 1px 0 0 0; }
+  .meta { font-size: 7.8pt; color: #46566b; margin-top: 3px; }
+  .rule { border-top: 2px solid #12355b; margin: 6px 0 7px 0; }
+  h2 { font-size: 9.6pt; color: #12355b; margin: 7px 0 3px 0; text-transform: uppercase; letter-spacing: .3px; }
+  p { margin: 0 0 4px 0; }
+  ul { margin: 0 0 3px 0; padding-left: 13px; }
+  li { margin-bottom: 1.6px; }
+  .cols { display: flex; gap: 12px; }
+  .col { flex: 1; min-width: 0; }
+  .kpis { display: flex; gap: 6px; margin: 2px 0 6px 0; }
+  .kpi { flex: 1; background: #eef3f8; border-left: 3px solid #12355b; padding: 4px 6px; }
+  .kpi b { display: block; font-size: 13pt; color: #12355b; line-height: 1.1; }
+  .kpi span { font-size: 7.3pt; color: #46566b; }
+  img { width: 100%; display: block; max-height: 38mm; object-fit: contain; }
+  .cap { font-size: 7.2pt; color: #46566b; margin: 1px 0 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 7.9pt; }
+  th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid #d5dde6; vertical-align: top; }
+  th { background: #eef3f8; color: #12355b; }
+  td.n { text-align: right; white-space: nowrap; }
+  .foot { font-size: 7.1pt; color: #46566b; border-top: 1px solid #d5dde6; margin-top: 5px; padding-top: 3px; }
+</style>
+</head>
+<body>
+<h1>Portugal's air connectivity</h1>
+<p class="sub">The global route network and the passengers who use it: a lakehouse on Apache Spark and Databricks Free Edition</p>
+<p class="meta">Analyzing Big Data 2026-2027 &nbsp;|&nbsp; NOVA IMS &nbsp;|&nbsp; Group project &nbsp;|&nbsp; <i>Group XX: student names and numbers</i></p>
+<div class="rule"></div>
+
+<div class="kpis">
+  <div class="kpi"><b>1.5 million</b><span>itineraries of up to two stops enumerated from the 14 Portuguese airports</span></div>
+  <div class="kpi"><b>101 &rarr; 1,165</b><span>airports reached from Lisbon: direct, and within one stop</span></div>
+  <div class="kpi"><b>64.1 million</b><span>passengers handled by the Portuguese airports in 2024 (+19% on 2019)</span></div>
+  <div class="kpi"><b>85.7%</b><span>of the seats offered were occupied in 2024</span></div>
+  <div class="kpi"><b>4.1 &times;</b><span>Faro: passengers in August compared with January</span></div>
+</div>
+
+<div class="cols">
+<div class="col">
+  <h2>Problem and motivation</h2>
+  <p>Tourism, the islands and the diaspora make air links strategic for Portugal. Airport operators, tourism boards and
+  airline planners need to know <b>how well connected each Portuguese airport is</b>, <b>which foreign hubs that
+  connectivity relies on</b> and <b>where the passengers actually are</b>. The first is a graph problem, the second a
+  time-series problem; we answer both in one lakehouse.</p>
+
+  <h2>Data</h2>
+  <ul>
+    <li><b>World route snapshot</b> (public, Kaggle): 66,378 airline routes, 36,759 airport-to-airport connections,
+    3,391 airports, 564 airlines. It gives the <i>structure</i> of the network.</li>
+    <li><b>Eurostat <code>avia_par_pt</code></b>: 809,988 observations of passengers, seats and flights on every main
+    route of nine Portuguese airports, monthly from 2004 to 2024. It gives the <i>use</i> of the network.</li>
+  </ul>
+
+  <h2>Solution</h2>
+  <p>One Databricks notebook that follows the course pipeline: files in a Unity Catalog Volume; <b>Bronze</b> (data rules,
+  Parquet), <b>Silver</b> (business rules, Delta) and <b>Gold</b> (aggregates, Delta) layers; Spark SQL; graph analytics
+  written with DataFrames (degrees, motif, subgraph, breadth-first search, PageRank); Structured Streaming with
+  checkpoints; Delta MERGE and time travel.</p>
+  <p><b>Why Spark.</b> Itineraries are joins of the route table with itself: 36,759 connections become 2.3 million one-stop
+  and about 146 million two-stop itineraries. An earlier pandas version of this analysis had to sample 60 airports;
+  here every one-stop itinerary of the world and every itinerary of up to two stops from Portugal is computed.</p>
+
+  <h2>Controls</h2>
+  <ul>
+    <li>18 of 18 data quality checks passed; three business rules documented (reused airline codes, a changed airport
+    code, non-airport codes in Eurostat).</li>
+    <li>Streaming result identical to the batch result (25,857 records in two drops).</li>
+    <li>Itinerary counts cross-checked with an independent pandas computation.</li>
+  </ul>
+
+  <img src="figures/reach.png" alt="Airports reachable from the main Portuguese airports by number of stops">
+  <p class="cap">Airports reachable from the five main Portuguese airports with zero, one and two stops.</p>
+</div>
+
+<div class="col">
+  <h2>Findings</h2>
+  <table>
+    <tr><th>Question</th><th>Answer</th></tr>
+    <tr><td>World network</td><td>Very unequal: 69% of the airports have at most 5 destinations; the 2% with more than 100
+    hold 24% of all connections. Lisbon ranks 60th of 3,391 by destinations.</td></tr>
+    <tr><td>Reach of Portugal</td><td>Lisbon reaches 3% of the network directly, 34% within one stop and 78% within two.
+    Porto and Faro: about 60 direct destinations, 745 and 621 within one stop. A stop adds only 3% to the distance (median).</td></tr>
+    <tr><td>Hubs</td><td>No single hub is critical: Lisbon's one-stop reach uses 86 transfer airports and needs 14 of them
+    to cover half of the destinations.</td></tr>
+    <tr><td>Demand</td><td>Lisbon handles 51.5% of the passengers, Porto 21%. The 10 busiest routes carry 20%. Busiest
+    route: Lisbon - Madrid, 1.91 million.</td></tr>
+    <tr><td>Occupancy</td><td>85.7% on average, but only about 73% on Lisbon - Porto and 72% on Lisbon - Faro.</td></tr>
+    <tr><td>Seasonality</td><td>Busiest / quietest month: Faro 4.1, Ponta Delgada 2.6, Porto 1.7, Funchal 1.5, Lisbon 1.5.</td></tr>
+    <tr><td>Trend</td><td>2024 is 19% above 2019 but 18% below the pre-pandemic trend; growth slowed to 4.3%.</td></tr>
+  </table>
+
+  <img src="figures/scenarios.png" alt="Observed passengers, pre-pandemic trend and two scenarios to 2030" style="margin-top:5px">
+  <p class="cap">Passengers handled per year, with two scenarios for 2030: 82.6 million (latest pace) and 92.3 million
+  (pre-pandemic volume growth).</p>
+
+  <h2>Recommendations</h2>
+  <ul>
+    <li><b>Manage long-haul gateways as a portfolio</b>: each region of the world should keep at least two alternative hubs.</li>
+    <li><b>Promote regional airports by one-stop reach</b>: more than 500 airports from each of Porto, Faro, Funchal and Ponta Delgada.</li>
+    <li><b>Target winter demand in Faro and the Azores</b>; Funchal shows that an island can be stable all year.</li>
+    <li><b>Review the short domestic air routes</b>: about 400,000 empty seats per direction a year on Lisbon - Porto and Lisbon - Faro.</li>
+    <li><b>Plan capacity with a range</b>, and treat Lisbon's capacity limit separately.</li>
+  </ul>
+
+  <h2>Limitations</h2>
+  <p>The route snapshot is undated and old (it lists airlines that closed before 2016, and 69 of the 276 routes with
+  traffic in 2024 are missing from it), so reach and hub results are structural, not a travel planner. Eurostat has no
+  airline dimension and counts domestic passengers at both airports. The scenarios ignore capacity limits.</p>
+</div>
+</div>
+
+<p class="foot">Sources: public airports, routes and airlines snapshot (Kaggle); Eurostat, dataset avia_par_pt, downloaded
+on 16 November 2026. All figures are computed by the project notebook <i>ABD_Group_Project_Portugal_Air_Connectivity</i>.</p>
+</body>
+</html>
