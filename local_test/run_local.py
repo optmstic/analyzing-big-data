@@ -2,7 +2,8 @@
 
 Runs every Python cell of the notebook on a local Spark + Delta Lake session, reading the same
 source files (the `data/` folder of this repository) that are uploaded to the Databricks Volume.
-The only substitutions are the Unity Catalog Volumes, which become local folders.
+The only substitutions are the Unity Catalog catalog name and the Volume, which becomes a local folder;
+`dbutils.fs`, `display()` and `%sql` cells are replaced by small local stand-ins.
 
 Usage:  python local_test/run_local.py [workdir]
         ABD_CONNECT=1 python local_test/run_local.py [workdir]   # through Spark Connect
@@ -47,8 +48,33 @@ print(f"Spark {spark.version} | Spark Connect: {USE_CONNECT}")
 figures = []
 
 
-def display(df):
-    df.show(25, truncate=False)
+def display(obj):
+    """Stand-in for the Databricks display(): DataFrames are shown as text, other objects are printed."""
+    if hasattr(obj, "show"):
+        obj.show(25, truncate=False)
+    else:
+        for item in obj:
+            print(item)
+
+
+class _LocalFs:
+    """Stand-in for dbutils.fs on the local file system."""
+
+    def rm(self, path, recurse=False):
+        existed = os.path.exists(path)
+        shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else (existed and os.remove(path))
+        return existed
+
+    def mkdirs(self, path):
+        os.makedirs(path, exist_ok=True)
+        return True
+
+    def ls(self, path):
+        return [f"{name}  ({os.path.getsize(os.path.join(path, name)):,} bytes)" for name in sorted(os.listdir(path))]
+
+
+class _LocalDbutils:
+    fs = _LocalFs()
 
 
 def _show():
@@ -65,12 +91,23 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 plt.show = _show
 
+# DataFrame.display() exists only on Databricks
+from pyspark.sql import DataFrame as _ClassicDataFrame  # noqa: E402
+
+_ClassicDataFrame.display = lambda self, *args: display(self)
+try:
+    from pyspark.sql.connect.dataframe import DataFrame as _ConnectDataFrame
+
+    _ConnectDataFrame.display = lambda self, *args: display(self)
+except ImportError:
+    pass
+
+LOCAL_CATALOG = "spark_catalog"
 SUBSTITUTIONS = [
-    ('spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{RAW_VOLUME}")', "pass"),
-    ('spark.sql(f"DROP VOLUME IF EXISTS {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")', "pass"),
-    ('spark.sql(f"CREATE VOLUME {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")', "pass"),
-    ('RAW_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{RAW_VOLUME}"', f'RAW_PATH = r"{DATA}"'),
-    ('LANDING_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{LANDING_VOLUME}"', f'LANDING_ROOT = r"{WORK}/landing"'),
+    ('CATALOG = "workspace"', f'CATALOG = "{LOCAL_CATALOG}"'),
+    ('VOLUME_PATH = "/Volumes/workspace/abd/abd"', f'VOLUME_PATH = r"{WORK}/volume"'),
+    ('SOURCE_PATH = f"{VOLUME_PATH}/cp_rail"', f'SOURCE_PATH = r"{DATA}"'),
+    ('spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.abd.abd")', "pass"),
 ]
 
 source = open(NOTEBOOK, encoding="utf-8").read()
@@ -79,15 +116,25 @@ for old, new in SUBSTITUTIONS:
     source = source.replace(old, new)
 
 cells = source.split("\n# COMMAND ----------\n")
-scope = {"spark": spark, "display": display}
+scope = {"spark": spark, "display": display, "dbutils": _LocalDbutils()}
 executed = 0
+sql_cells = 0
 for number, cell in enumerate(cells, start=1):
     body = cell.replace("# Databricks notebook source", "").strip()
-    if not body or body.startswith("# MAGIC"):
-        continue
     title = next((ln[len("# DBTITLE 1,"):] for ln in body.splitlines() if ln.startswith("# DBTITLE")), "")
+    body = "\n".join(ln for ln in body.splitlines() if not ln.startswith("# DBTITLE")).strip()
+    if not body or body.startswith("# MAGIC %md"):
+        continue
     print(f"\n{'=' * 100}\nCELL {number}: {title}\n{'=' * 100}")
-    exec(compile(body, f"<cell {number}>", "exec"), scope)
+    if body.startswith("# MAGIC %sql"):
+        # %sql cell: run the statement with spark.sql and show the result
+        statement = "\n".join(ln[len("# MAGIC"):].lstrip(" ") if ln.startswith("# MAGIC") else ln for ln in body.splitlines())
+        statement = statement.replace("%sql", "", 1).replace("workspace.", f"{LOCAL_CATALOG}.")
+        display(spark.sql(statement))
+        sql_cells += 1
+    else:
+        assert "# MAGIC" not in body, f"unsupported magic in cell {number}"
+        exec(compile(body, f"<cell {number}>", "exec"), scope)
     executed += 1
 
 # ---- assertions on the notebook's own reconciliations -------------------------
@@ -98,5 +145,5 @@ assert scope["n_stop_events"] == 8954555, scope["n_stop_events"]
 total_rank = scope["pagerank_df"].agg({"pagerank": "sum"}).first()[0]
 assert abs(total_rank - 1.0) < 1e-9, total_rank
 assert len(figures) == 6, figures
-print(f"\nLOCAL TEST PASSED: {executed} code cells executed, {len(figures)} figures rendered.")
+print(f"\nLOCAL TEST PASSED: {executed} cells executed ({sql_cells} of them %sql), {len(figures)} figures rendered.")
 spark.stop()
