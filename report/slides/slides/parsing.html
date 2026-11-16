@@ -1,0 +1,19 @@
+<section id="parsing" data-transition="fade">
+<div class="mark"></div>
+<div class="title-block">
+<p class="eyebrow">BRONZE TO SILVER</p>
+<h2>The Eurostat files are text, not tables</h2>
+</div>
+<div class="col" style="gap:32px">
+<p class="code">A,FLIGHT,CAF_PAS_ARR,PT_LPFR_AT_LOWW   :   :   :   188   :   95   :   160   205</p>
+<div class="decode">
+<div class="decode-item"><p class="decode-key">A</p><p class="small">annual figures</p></div>
+<div class="decode-item"><p class="decode-key">FLIGHT</p><p class="small">unit: flights</p></div>
+<div class="decode-item"><p class="decode-key">CAF_PAS_ARR</p><p class="small">passenger flights arriving</p></div>
+<div class="decode-item"><p class="decode-key">PT_LPFR_AT_LOWW</p><p class="small">at Faro, from Vienna</p></div>
+</div>
+<p class="txt">Then one value per year, 2016 to 2024; a colon means no value. <b>split</b>, <b>posexplode</b> and <b>pivot</b> turn every line into rows. Each file is read with its own header, because the UK file stops in 2019.</p>
+</div>
+<div class="foot"><p class="foot-text">Portugal’s air connectivity · Analyzing Big Data 2026–2027</p><p class="foot-text">5</p></div>
+<aside>The files are not tables. The first field packs four things: frequency, unit, measure and route. Here: annual, flights, passenger flights arriving at Faro from Vienna. Then one column per year, and a colon when there is no value. So I read them as text, and one function turns them into rows with split, posexplode and pivot. Each value is matched with the header of its own file, because the United Kingdom stopped reporting in 2019. Then six quality checks, all zero.</aside>
+</section>
