@@ -1,17 +1,15 @@
-"""Local smoke test for the Databricks notebook.
+"""Local test for the Databricks notebook.
 
-Runs every Python cell of the notebook on a local Spark + Delta Lake session, using
-SYNTHETIC stand-in data for `samples.nyctaxi.trips` (same schema, deliberately dirty).
-It validates that the code executes and that the internal reconciliations hold.
-Its numbers are NOT the project results: those come from running the notebook on Databricks.
+Runs every Python cell of the notebook on a local Spark + Delta Lake session, reading the same
+source files (the `data/` folder of this repository) that are uploaded to the Databricks Volume.
+The only substitutions are the Unity Catalog Volumes, which become local folders.
 
 Usage:  python local_test/run_local.py [workdir]
+        ABD_CONNECT=1 python local_test/run_local.py [workdir]   # through Spark Connect
 """
 import os
-import random
 import shutil
 import sys
-from datetime import datetime, timedelta
 
 import matplotlib
 
@@ -20,7 +18,8 @@ matplotlib.use("Agg")
 from pyspark.sql import SparkSession  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NOTEBOOK = os.path.join(REPO, "notebooks", "ABD_Group_Project_NYC_Taxi_Lakehouse.py")
+NOTEBOOK = os.path.join(REPO, "notebooks", "ABD_Group_Project_CP_Rail_Present_and_Future.py")
+DATA = os.path.join(REPO, "data")
 WORK = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "/tmp/abd_local_test")
 shutil.rmtree(WORK, ignore_errors=True)
 os.makedirs(WORK)
@@ -43,45 +42,6 @@ spark = (
 if not USE_CONNECT:
     spark.sparkContext.setLogLevel("ERROR")
 print(f"Spark {spark.version} | Spark Connect: {USE_CONNECT}")
-
-# ---- synthetic stand-in for samples.nyctaxi.trips ---------------------------
-random.seed(42)
-ZIPS = [10001, 10002, 10003, 10011, 10019, 10022, 10028, 10036, 10119, 10282, 10301,
-        10451, 11201, 11211, 11215, 11101, 11371, 11430, 11354, 11691, 7114, 11001]
-WEIGHTS = [9, 6, 8, 9, 10, 9, 7, 9, 3, 2, 1, 1, 3, 3, 2, 3, 4, 4, 1, 0.3, 0.3, 0.2]
-start = datetime(2016, 1, 1)
-rows = []
-for _ in range(6000):
-    pickup = start + timedelta(seconds=random.randint(0, 60 * 86400 - 1))
-    dist = round(random.expovariate(1 / 2.8) + 0.3, 2)
-    minutes = max(2.0, dist * random.uniform(3, 7))
-    dropoff = pickup + timedelta(seconds=int(minutes * 60))
-    fare = round(2.5 + 2.5 * dist + random.uniform(0, 4), 1)
-    pz, dz = random.choices(ZIPS, WEIGHTS, k=2)
-    rows.append((pickup, dropoff, dist, fare, pz, dz))
-t = datetime(2016, 1, 15, 8, 0, 0)
-rows += [
-    (t, t, 1.0, 5.0, 10001, 10002),                              # invalid_time_range
-    (t, t - timedelta(minutes=5), 1.0, 5.0, 10001, 10003),       # invalid_time_range
-    (t, t + timedelta(hours=5), 3.0, 30.0, 10001, 10011),        # duration_too_long
-    (t, t + timedelta(minutes=9), 0.0, 6.0, 10001, 10019),       # invalid_distance
-    (t, t + timedelta(minutes=9), 250.0, 6.0, 10001, 10022),     # invalid_distance
-    (t, t + timedelta(minutes=9), 2.0, -8.0, 10001, 10028),      # invalid_fare
-    (t, t + timedelta(minutes=9), 2.0, 0.0, 10001, 10036),       # invalid_fare
-    (t, t + timedelta(minutes=1), 30.0, 60.0, 10001, 11430),     # implausible_speed
-    (t, t + timedelta(minutes=9), 2.0, 9.0, None, 10001),        # missing_values
-    (None, t + timedelta(minutes=9), 2.0, 9.0, 10001, 10001),    # missing_values (null pickup)
-    (t, t + timedelta(minutes=9), 2.0, 9.0, 10451, 10301),       # valid; 10301 becomes a dangling vertex
-]
-rows += rows[:25]                                                # exact duplicates
-random.shuffle(rows)
-
-spark.sql("CREATE DATABASE IF NOT EXISTS src_samples")
-spark.createDataFrame(
-    rows,
-    "tpep_pickup_datetime TIMESTAMP, tpep_dropoff_datetime TIMESTAMP, trip_distance DOUBLE, "
-    "fare_amount DOUBLE, pickup_zip INT, dropoff_zip INT",
-).write.format("delta").mode("overwrite").saveAsTable("src_samples.trips")
 
 # ---- Databricks shims and local substitutions --------------------------------
 figures = []
@@ -106,9 +66,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 plt.show = _show
 
 SUBSTITUTIONS = [
-    ('SOURCE_TABLE = "samples.nyctaxi.trips"', 'SOURCE_TABLE = "spark_catalog.src_samples.trips"'),
-    ('spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{VOLUME}")', "pass"),
-    ('VOLUME_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"', f'VOLUME_ROOT = r"{WORK}/volume"'),
+    ('spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{RAW_VOLUME}")', "pass"),
+    ('spark.sql(f"DROP VOLUME IF EXISTS {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")', "pass"),
+    ('spark.sql(f"CREATE VOLUME {CATALOG}.{SCHEMA}.{LANDING_VOLUME}")', "pass"),
+    ('RAW_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{RAW_VOLUME}"', f'RAW_PATH = r"{DATA}"'),
+    ('LANDING_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{LANDING_VOLUME}"', f'LANDING_ROOT = r"{WORK}/landing"'),
 ]
 
 source = open(NOTEBOOK, encoding="utf-8").read()
@@ -129,12 +91,12 @@ for number, cell in enumerate(cells, start=1):
     executed += 1
 
 # ---- assertions on the notebook's own reconciliations -------------------------
-assert scope["balanced"], "Bronze != duplicates + Silver + Quarantine"
+assert scope["n_checks_failed"] == 0, "a data quality check did not pass"
 assert scope["streaming_matches_batch"], "streaming results differ from batch results"
-assert scope["n_duplicates"] == 25, scope["n_duplicates"]
-assert scope["n_quarantine"] == 10, scope["n_quarantine"]
+assert scope["n_service_days"] == 548614, scope["n_service_days"]   # cross-checked with an independent pandas script
+assert scope["n_stop_events"] == 8954555, scope["n_stop_events"]
 total_rank = scope["pagerank_df"].agg({"pagerank": "sum"}).first()[0]
 assert abs(total_rank - 1.0) < 1e-9, total_rank
-assert len(figures) == 4, figures
+assert len(figures) == 6, figures
 print(f"\nLOCAL TEST PASSED: {executed} code cells executed, {len(figures)} figures rendered.")
 spark.stop()
