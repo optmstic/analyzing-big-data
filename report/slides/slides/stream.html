@@ -1,0 +1,22 @@
+<section id="stream" data-transition="fade">
+<div class="mark"></div>
+<div class="title-block">
+<p class="eyebrow">Q3 · TREND</p>
+<h2>A stream adds only the new months</h2>
+</div>
+<div class="row" style="gap:24px; align-items:stretch">
+<div class="card anim" style="--i:0"><p class="chip-grey">Delivery 1</p><h3>Months of 2025</h3><p class="txt">JSON files land in the Volume. The stream reads them: 4,956 rows.</p></div>
+<x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
+<div class="card anim" style="--i:1"><p class="chip-grey">Delivery 2</p><h3>Months of 2026</h3><p class="txt">The checkpoint remembers what was read: only the new files, 2,268 rows.</p></div>
+<x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
+<div class="card anim" style="--i:2"><p class="chip">Control</p><h3>Same as batch</h3><p class="txt">Totals per country and month are identical to a normal batch calculation.</p></div>
+</div>
+<div class="pills" style="margin-top:56px">
+<p class="pill">Source: JSON files</p>
+<p class="pill">Sink: Delta table</p>
+<p class="pill">Trigger: availableNow</p>
+<p class="pill">Checkpoint: files already read</p>
+</div>
+<div class="foot"><p class="foot-text">Portugal’s air connectivity · Analyzing Big Data 2026–2027</p><p class="foot-text">11</p></div>
+<aside>New months arrive every month, so I built a stream. The first delivery has the months of 2025, the second the months of 2026. The checkpoint remembers what was already read, so the second run only processes the new files. The control shows that the result is identical to a normal batch calculation. On serverless, the trigger availableNow processes what is waiting and stops.</aside>
+</section>
