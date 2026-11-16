@@ -58,6 +58,18 @@ def display(obj):
             print(item)
 
 
+class _LocalFile:
+    """Stand-in for the FileInfo objects returned by dbutils.fs.ls."""
+
+    def __init__(self, folder, name):
+        self.name = name
+        self.path = os.path.join(folder, name)
+        self.size = os.path.getsize(self.path)
+
+    def __repr__(self):
+        return f"{self.name}  ({self.size:,} bytes)"
+
+
 class _LocalFs:
     """Stand-in for dbutils.fs on the local file system."""
 
@@ -71,7 +83,7 @@ class _LocalFs:
         return True
 
     def ls(self, path):
-        return [f"{name}  ({os.path.getsize(os.path.join(path, name)):,} bytes)" for name in sorted(os.listdir(path))]
+        return [_LocalFile(path, name) for name in sorted(os.listdir(path))]
 
 
 class _LocalDbutils:
@@ -142,15 +154,16 @@ for number, cell in enumerate(cells, start=1):
 assert scope["n_checks_failed"] == 0, "a data quality check did not pass"
 assert scope["streaming_matches_batch"], "streaming results differ from batch results"
 # Cross-checked with an independent pandas script on the same files
-assert scope["n_edges"] == 36759, scope["n_edges"]
-assert scope["n_vertices"] == 3391, scope["n_vertices"]
-assert scope["n_direct"] == 296, scope["n_direct"]
-assert scope["n_one_stop"] == 21972, scope["n_one_stop"]
-assert scope["n_two_stop"] == 1479733, scope["n_two_stop"]
-assert scope["hub_reach"]["direct"] == 101 and scope["hub_reach"]["within_one_stop"] == 1165
-assert scope["hub_reach"]["within_two_stops"] == 2631
+assert scope["n_edges"] == 12473, scope["n_edges"]
+assert scope["n_vertices"] == 602, scope["n_vertices"]
+assert scope["n_direct"] == 331, scope["n_direct"]
+assert scope["n_one_stop"] == 22312, scope["n_one_stop"]
+assert scope["n_two_stop"] == 1350767, scope["n_two_stop"]
+assert scope["n_network_one_stop"] == 922420, scope["n_network_one_stop"]
+assert scope["hub_reach"]["direct"] == 106 and scope["hub_reach"]["within_one_stop"] == 562
+assert scope["hub_reach"]["within_two_stops"] == 598
 total_rank = scope["pagerank_df"].agg({"pagerank": "sum"}).first()[0]
 assert abs(total_rank - 1.0) < 1e-9, total_rank
-assert len(figures) == 6, figures
+assert len(figures) == 8, figures
 print(f"\nLOCAL TEST PASSED: {executed} cells executed ({sql_cells} of them %sql), {len(figures)} figures rendered.")
 spark.stop()
