@@ -55,7 +55,7 @@ Official Eurostat statistics, downloaded on 16 November 2026 and stored unchange
 |---|---|---|
 | `routes_annual_<country>.tsv` (38 files, 35 countries) | `avia_par_<country>` | Passengers, seats and flights of each air route, per year, 2016 to 2024 |
 | `airports_monthly_PAS_CRD_<type>.tsv` (3 files) | `avia_paoa` | Monthly passengers of each European airport (total, national, international), 2016 to 2026 |
-| `airports.csv` | | Public airport registry (Kaggle), for names and coordinates |
+| `airports.csv` | | OurAirports (ourairports.com), for airport names and coordinates |
 
 Route statistics end in 2024 because Eurostat had not published 2025 yet. Airport statistics reach April 2026 for
 Portugal.

@@ -790,4 +790,4 @@ print(f"\nCONTROLS: quality checks passed: {'YES' if checks_ok else 'NO'}; "
 # MAGIC
 # MAGIC ### Sources
 # MAGIC * Eurostat, datasets `avia_par` (air routes) and `avia_paoa` (airports), downloaded on 16 November 2026.
-# MAGIC * Airport names and coordinates: public airport registry (Kaggle).
+# MAGIC * Airport names and coordinates: OurAirports (ourairports.com), public domain.
