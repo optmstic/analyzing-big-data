@@ -1,0 +1,20 @@
+<section id="parsing" data-transition="fade">
+<div class="mark"></div>
+<div class="title-block">
+<p class="eyebrow">BRONZE TO SILVER</p>
+<h2>The files are not normal tables, so a parser cuts them into rows</h2>
+</div>
+<div class="col" style="gap:32px">
+<p class="code">A,FLIGHT,CAF_PAS_ARR,PT_LPFR_AT_LOWW   :   :   :   188   :   95   :   160   205</p>
+<div class="decode">
+<div class="decode-item"><p class="decode-key">A</p><p class="small">annual figures</p></div>
+<div class="decode-item"><p class="decode-key">FLIGHT</p><p class="small">unit: flights</p></div>
+<div class="decode-item"><p class="decode-key">CAF_PAS_ARR</p><p class="small">passenger flights arriving</p></div>
+<div class="decode-item"><p class="decode-key">PT_LPFR_AT_LOWW</p><p class="small">at Faro, from Vienna</p></div>
+</div>
+<p class="txt">Each line packs several pieces of information into one field, then one value per year (a colon means no value). The parser (<b>split</b>, <b>posexplode</b>, <b>pivot</b>) turns every line into normal rows.</p>
+<p class="meaning">Six quality checks then confirm the data is clean: no duplicates, no negative numbers, no impossible months. All pass.</p>
+</div>
+<div class="foot"><p class="foot-text">Portugal’s air connectivity · Analyzing Big Data 2026–2027</p><p class="foot-text">5</p></div>
+<aside>Os ficheiros não são tabelas normais. Cada linha junta várias informações num só campo: neste exemplo, valores anuais, voos, voos de passageiros que chegam a Faro vindos de Viena. Depois há uma coluna por ano, e dois pontos quando não há valor. O parser corta cada linha em linhas normais. A seguir correm seis testes de qualidade simples: sem duplicados, sem números negativos, sem meses impossíveis. Todos passam.</aside>
+</section>

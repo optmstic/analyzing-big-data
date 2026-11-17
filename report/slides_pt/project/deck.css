@@ -1,0 +1,122 @@
+/* NOVA IMS palette: lime and grey from the school's logo, with toned dark and light. */
+:root {
+  --lime: #BED62F;
+  --grey: #5B6062;
+  --ink: #2B2F31;
+  --paper: #F5F6F1;
+  --paper2: #EBEEE3;
+  --card: #FCFDF9;
+  --text: #45494B;
+  --on-dark: #ECEEE6;
+  --on-dark-soft: #C9CEC8;
+}
+body { font-family: 'Inter', Arial, sans-serif; color: #45494B; }
+h1, h2, h3, p, ul, table { margin: 0; }
+section { background: #F5F6F1; color: #45494B; padding: 128px 128px 160px; box-sizing: border-box; }
+section.alt { background: #EBEEE3; }
+section.dark { background: #2B2F31; color: #ECEEE6; padding: 128px; }
+section.lime { background: #BED62F; color: #2B2F31; }
+
+h1, h2, h3 { font-family: 'Montserrat', Arial, sans-serif; }
+h1 { font-size: 112px; font-weight: 800; line-height: 1.05; color: #F5F6F1; }
+h2 { font-size: 56px; font-weight: 700; line-height: 1.12; color: #2B2F31; }
+h3 { font-size: 36px; font-weight: 700; line-height: 1.2; color: #2B2F31; }
+.dark h2, .dark h3 { color: #F5F6F1; }
+.lime h2, .lime h3 { color: #2B2F31; }
+
+.eyebrow { font-size: 24px; font-weight: 700; letter-spacing: 3px; color: #5B6062; margin-bottom: 16px; }
+.dark .eyebrow { color: #BED62F; }
+.lime .eyebrow { color: #2B2F31; }
+.title-block { margin-bottom: 48px; }
+.lead { font-size: 36px; line-height: 1.35; color: #45494B; }
+.dark .lead { color: #C9CEC8; }
+.txt { font-size: 28px; line-height: 1.4; color: #45494B; }
+.dark .txt { color: #C9CEC8; }
+.small { font-size: 24px; line-height: 1.4; color: #5B6062; }
+.dark .small { color: #C9CEC8; }
+
+/* brand stripe on light slides */
+.mark { position: absolute; left: 0; top: 0; width: 24px; height: 1080px; background: #BED62F; }
+
+/* footer */
+.foot { position: absolute; left: 128px; bottom: 64px; width: 1664px; height: 32px; display: flex; justify-content: space-between; align-items: center; }
+.foot-text { font-size: 24px; line-height: 32px; color: #5B6062; }
+.lime .foot-text { color: #2B2F31; }
+
+/* plain-language "what it means" line */
+.meaning { font-size: 28px; line-height: 1.4; color: #2B2F31; border-left: 8px solid #BED62F; padding-left: 24px; }
+.dark .meaning { color: #ECEEE6; }
+
+/* layout */
+.row { display: flex; gap: 40px; }
+.col { display: flex; flex-direction: column; gap: 24px; }
+.card { background: #FCFDF9; border-top: 8px solid #BED62F; padding: 40px; display: flex; flex-direction: column; gap: 20px; flex: 1; box-sizing: border-box; }
+.chip { font-size: 24px; font-weight: 700; color: #2B2F31; background: #BED62F; padding: 4px 16px; border-radius: 6px; align-self: flex-start; }
+.chip-grey { font-size: 24px; font-weight: 700; color: #F5F6F1; background: #5B6062; padding: 4px 16px; border-radius: 6px; align-self: flex-start; }
+.tech { font-size: 24px; line-height: 1.4; font-weight: 600; color: #5B6062; }
+
+/* big numbers */
+.big { font-family: 'Montserrat', Arial, sans-serif; font-size: 112px; font-weight: 800; line-height: 1; color: #2B2F31; }
+.dark .big { color: #BED62F; }
+.underline { width: 96px; height: 8px; background: #BED62F; }
+.stat { display: flex; flex-direction: column; gap: 20px; flex: 1; }
+
+/* architecture */
+.layer { background: #FCFDF9; padding: 32px; width: 330px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; border-top: 8px solid #5B6062; }
+.layer.gold { border-top: 8px solid #BED62F; }
+.pills { display: flex; gap: 16px; }
+.pill { font-size: 24px; font-weight: 600; color: #2B2F31; background: #EBEEE3; padding: 8px 20px; border-radius: 24px; }
+.alt .pill { background: #FCFDF9; }
+
+/* code line */
+.code { font-family: 'Courier New', Courier, monospace; font-size: 28px; line-height: 1.4; color: #ECEEE6; background: #2B2F31; padding: 28px 36px; white-space: nowrap; }
+.decode { display: flex; gap: 24px; }
+.decode-item { background: #FCFDF9; padding: 24px; flex: 1; display: flex; flex-direction: column; gap: 8px; border-top: 6px solid #BED62F; }
+.decode-key { font-family: 'Courier New', Courier, monospace; font-size: 28px; font-weight: 700; color: #2B2F31; }
+
+/* vertical bar charts */
+.chart { display: flex; align-items: flex-end; justify-content: space-between; height: 540px; }
+.bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; width: 160px; }
+.bar-col.narrow { width: 124px; }
+.bar { width: 112px; background: #BED62F; }
+.narrow .bar { width: 84px; }
+.bar.grey { background: #5B6062; }
+.bar-val { font-size: 24px; font-weight: 600; color: #2B2F31; }
+.bar-year { font-size: 24px; color: #5B6062; }
+
+/* horizontal bars */
+.hrow { display: flex; align-items: center; gap: 24px; }
+.hname { font-size: 28px; font-weight: 600; color: #2B2F31; width: 300px; }
+.hbars { display: flex; flex-direction: column; gap: 8px; }
+.hline { display: flex; align-items: center; gap: 16px; }
+.hbar { height: 28px; background: #BED62F; }
+.hbar.grey { background: #5B6062; }
+.hval { font-size: 24px; color: #45494B; }
+.legend { display: flex; gap: 40px; align-items: center; }
+.key { display: flex; gap: 12px; align-items: center; }
+.swatch { width: 32px; height: 20px; background: #BED62F; }
+.swatch.grey { background: #5B6062; }
+
+/* table */
+.data-table { font-size: 28px; color: #45494B; width: 100%; }
+
+/* journey diagram */
+.airport { background: #BED62F; padding: 28px 40px; display: flex; flex-direction: column; align-items: center; gap: 4px; border-radius: 12px; width: 300px; box-sizing: border-box; }
+.code-big { font-family: 'Montserrat', Arial, sans-serif; font-size: 56px; font-weight: 800; color: #2B2F31; }
+.airport-name { font-size: 24px; color: #2B2F31; }
+.leg { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+/* recommendations */
+.reco { display: flex; gap: 40px; align-items: flex-start; }
+.reco-num { font-family: 'Montserrat', Arial, sans-serif; font-size: 56px; font-weight: 800; color: #2B2F31; width: 80px; }
+.reco-sub { font-size: 28px; line-height: 1.4; color: #2B2F31; }
+
+/* cover */
+.cover-body { display: flex; flex-direction: column; gap: 32px; width: 1280px; margin-top: 160px; }
+.byline { position: absolute; left: 128px; bottom: 112px; width: 1500px; font-size: 28px; color: #C9CEC8; }
+.block-lime { position: absolute; right: 128px; top: 128px; width: 240px; height: 200px; background: #BED62F; }
+.block-grey { position: absolute; right: 128px; top: 328px; width: 240px; height: 140px; background: #5B6062; }
+
+/* motion: content arrives once, staged */
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0px); } }
+.anim { animation: rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 120ms); }

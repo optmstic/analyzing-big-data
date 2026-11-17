@@ -1,0 +1,22 @@
+<section id="stream" data-transition="fade">
+<div class="mark"></div>
+<div class="title-block">
+<p class="eyebrow">Q3 · TREND</p>
+<h2>A stream adds only the new months</h2>
+</div>
+<div class="row" style="gap:24px; align-items:stretch">
+<div class="card anim" style="--i:0"><p class="chip-grey">Delivery 1</p><h3>Months of 2025</h3><p class="txt">New monthly data arrives as files. The program reads the months of 2025.</p></div>
+<x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
+<div class="card anim" style="--i:1"><p class="chip-grey">Delivery 2</p><h3>Months of 2026</h3><p class="txt">It keeps a record of what it has already read, the checkpoint, so it reads only the new files.</p></div>
+<x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
+<div class="card anim" style="--i:2"><p class="chip">Control</p><h3>Same as batch</h3><p class="txt">The result is exactly the same as recalculating everything from scratch.</p></div>
+</div>
+<div class="pills" style="margin-top:56px">
+<p class="pill">Source: JSON files</p>
+<p class="pill">Sink: Delta table</p>
+<p class="pill">Trigger: availableNow</p>
+<p class="pill">Checkpoint: files already read</p>
+</div>
+<div class="foot"><p class="foot-text">Portugal’s air connectivity · Analyzing Big Data 2026–2027</p><p class="foot-text">11</p></div>
+<aside>O streaming, em palavras simples: os novos dados mensais chegam em ficheiros. O programa lê primeiro 2025 e depois 2026. Na segunda vez lê apenas os ficheiros novos, porque guarda um registo do que já leu: o checkpoint. O controlo final mostra que o resultado é exatamente igual a recalcular tudo de raiz.</aside>
+</section>
