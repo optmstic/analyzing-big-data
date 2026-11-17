@@ -43,6 +43,10 @@ h3 { font-size: 36px; font-weight: 700; line-height: 1.2; color: #2B2F31; }
 .foot-text { font-size: 24px; line-height: 32px; color: #5B6062; }
 .lime .foot-text { color: #2B2F31; }
 
+/* plain-language "what it means" line */
+.meaning { font-size: 28px; line-height: 1.4; color: #2B2F31; border-left: 8px solid #BED62F; padding-left: 24px; }
+.dark .meaning { color: #ECEEE6; }
+
 /* layout */
 .row { display: flex; gap: 40px; }
 .col { display: flex; flex-direction: column; gap: 24px; }

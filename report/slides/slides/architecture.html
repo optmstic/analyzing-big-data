@@ -7,13 +7,14 @@
 <div class="row" style="gap:24px; align-items:stretch">
 <div class="layer anim" style="--i:0"><h3>Source</h3><p class="txt">One zip, 42 files, in a Unity Catalog Volume</p></div>
 <x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
-<div class="layer anim" style="--i:1"><h3>Bronze</h3><p class="txt">The files as received, saved as Parquet</p></div>
+<div class="layer anim" style="--i:1"><h3>Bronze</h3><p class="txt">The files exactly as downloaded</p></div>
 <x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
-<div class="layer anim" style="--i:2"><h3>Silver</h3><p class="txt">Clean tables: airports, routes, monthly traffic</p></div>
+<div class="layer anim" style="--i:2"><h3>Silver</h3><p class="txt">The same data cleaned into normal tables: one row per route per year</p></div>
 <x-connector style="width:64px; align-self:center; color:#5B6062; border-width:3px"></x-connector>
-<div class="layer gold anim" style="--i:3"><h3>Gold</h3><p class="txt">Small Delta tables that answer Q1, Q2 and Q3</p></div>
+<div class="layer gold anim" style="--i:3"><h3>Gold</h3><p class="txt">Small summary tables that answer the three questions</p></div>
 </div>
-<div class="pills" style="margin-top:64px">
+<p class="meaning" style="margin-top:56px">Think of three shelves: the raw files, the clean data, and the answers.</p>
+<div class="pills" style="margin-top:40px">
 <p class="pill">PySpark DataFrames</p>
 <p class="pill">Spark SQL</p>
 <p class="pill">Structured Streaming</p>
@@ -21,5 +22,5 @@
 <p class="pill">Unity Catalog</p>
 </div>
 <div class="foot"><p class="foot-text">Portugal’s air connectivity · Analyzing Big Data 2026–2027</p><p class="foot-text">4</p></div>
-<aside>Everything runs on Databricks Free Edition. The data follows the medallion architecture from class. Bronze keeps the files as received. Silver has the clean tables. Gold has the small tables that answer the questions. Files live in a Unity Catalog Volume and tables are in Delta format.</aside>
+<aside>Bronze, Silver and Gold are just three shelves. Bronze: the files exactly as downloaded. Silver: the same data cleaned into normal tables, one row per route per year. Gold: small summary tables that answer the questions. Everything runs on Databricks Free Edition, and the tables are stored in Delta format.</aside>
 </section>

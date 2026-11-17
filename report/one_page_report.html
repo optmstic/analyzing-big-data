@@ -7,27 +7,31 @@
   @page { size: A4; margin: 11mm 12mm; }
   * { box-sizing: border-box; }
   body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 8.2pt; line-height: 1.27; color: #1c2430; margin: 0; }
-  h1 { font-size: 17pt; margin: 0; color: #12355b; }
-  .sub { font-size: 9.2pt; color: #46566b; margin: 1px 0 0 0; }
-  .meta { font-size: 7.8pt; color: #46566b; margin-top: 3px; }
-  .rule { border-top: 2px solid #12355b; margin: 6px 0 7px 0; }
-  h2 { font-size: 9.6pt; color: #12355b; margin: 7px 0 3px 0; text-transform: uppercase; letter-spacing: .3px; }
+  h1 { font-size: 17pt; margin: 0; color: #2B2F31; }
+  .sub { font-size: 9.2pt; color: #5B6062; margin: 1px 0 0 0; }
+  .meta { font-size: 7.8pt; color: #5B6062; margin-top: 3px; }
+  .rule { border-top: 3px solid #BED62F; margin: 6px 0 7px 0; }
+  h2 { font-size: 9.6pt; color: #2B2F31; margin: 7px 0 3px 0; text-transform: uppercase; letter-spacing: .3px; }
   p { margin: 0 0 4px 0; }
   ul { margin: 0 0 3px 0; padding-left: 13px; }
   li { margin-bottom: 1.6px; }
   .cols { display: flex; gap: 12px; }
   .col { flex: 1; min-width: 0; }
   .kpis { display: flex; gap: 6px; margin: 2px 0 6px 0; }
-  .kpi { flex: 1; background: #eef3f8; border-left: 3px solid #12355b; padding: 4px 6px; }
-  .kpi b { display: block; font-size: 13pt; color: #12355b; line-height: 1.1; }
-  .kpi span { font-size: 7.3pt; color: #46566b; }
+  .kpi { flex: 1; background: #EEF1E6; border-left: 3px solid #2B2F31; padding: 4px 6px; }
+  .kpi b { display: block; font-size: 13pt; color: #2B2F31; line-height: 1.1; }
+  .kpi span { font-size: 7.3pt; color: #5B6062; }
   img { width: 100%; display: block; max-height: 38mm; object-fit: contain; }
-  .cap { font-size: 7.2pt; color: #46566b; margin: 1px 0 4px 0; }
+  .cap { font-size: 7.2pt; color: #5B6062; margin: 1px 0 4px 0; }
   table { border-collapse: collapse; width: 100%; font-size: 7.9pt; }
-  th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid #d5dde6; vertical-align: top; }
-  th { background: #eef3f8; color: #12355b; }
+  th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid #DFE3D6; vertical-align: top; }
+  th { background: #EEF1E6; color: #2B2F31; }
   td.n { text-align: right; white-space: nowrap; }
-  .foot { font-size: 7.1pt; color: #46566b; border-top: 1px solid #d5dde6; margin-top: 5px; padding-top: 3px; }
+  .bigidea { background: #eef3e0; border-left: 5px solid #BED62F; padding: 6px 9px; margin-bottom: 6px; font-size: 8.4pt; }
+  .conclusion { background: #2B2F31; color: #F5F6F1; padding: 6px 9px; margin: 6px 0; }
+  .conclusion h2 { color: #BED62F; margin-top: 0; }
+  li.means { list-style: none; margin-left: -13px; border-left: 4px solid #BED62F; padding-left: 7px; }
+  .foot { font-size: 7.1pt; color: #5B6062; border-top: 1px solid #DFE3D6; margin-top: 5px; padding-top: 3px; }
 </style>
 </head>
 <body>
@@ -36,82 +40,81 @@
 <p class="meta">Analyzing Big Data 2026-2027 &nbsp;|&nbsp; NOVA IMS &nbsp;|&nbsp; Project &nbsp;|&nbsp; <i>Student name and number</i></p>
 <div class="rule"></div>
 
-<div class="kpis">
-  <div class="kpi"><b>106 &rarr; 562</b><span>airports reached from Lisbon: direct, and with one stop (94% of the network)</span></div>
-  <div class="kpi"><b>67.2 million</b><span>air passengers in Portugal in 2025, 22% more than in 2019</span></div>
-  <div class="kpi"><b>72%</b><span>of the seats occupied on Lisbon - Porto and Lisbon - Faro; 80% to 89% on the other busiest routes</span></div>
-  <div class="kpi"><b>4.4 &times;</b><span>Faro: passengers in July compared with January</span></div>
+<div class="bigidea">
+  <b>The big idea.</b> I took official European statistics about flights and used them to answer three questions about
+  Portugal: where you can fly, where the passengers are, and how traffic is changing. Spark was needed because one step,
+  combining every route with every other route, creates almost a million rows.
 </div>
 
 <div class="cols">
 <div class="col">
-  <h2>Problem</h2>
-  <p>Portugal depends on its air links for tourism, the islands and the diaspora. Three questions:</p>
+  <h2>How the data is prepared</h2>
   <ul>
-    <li><b>Reach</b>: where can you fly from Portugal, directly and with one stop?</li>
-    <li><b>Demand</b>: where are the passengers, how full are the planes, how seasonal is traffic?</li>
-    <li><b>Trend</b>: how is demand evolving, and can the figures be kept up to date as new months arrive?</li>
+    <li><b>The files.</b> Eurostat gives one file per country listing its air routes: for each route, how many
+    passengers, seats and flights per year (2016-2024). Another file gives each airport's passengers per month, up to
+    2026. In total 42 files, uploaded as one zip.</li>
+    <li><b>Bronze, Silver, Gold</b> are three shelves. Bronze: the files exactly as downloaded. Silver: the same data
+    cleaned into normal tables, one row per route per year. Gold: small summary tables that answer the questions.</li>
+    <li><b>The parser.</b> The files are not normal tables: each line packs several pieces of information into one
+    field, with one column per year. The parser cuts them into normal rows.</li>
+    <li><b>Quality checks.</b> Six simple tests: no duplicates, no negative numbers, no impossible months. All pass.</li>
   </ul>
 
-  <h2>Data</h2>
-  <p>Official Eurostat statistics, downloaded on 16 November 2026:</p>
+  <h2>Q1 - Reach: where can you fly?</h2>
   <ul>
-    <li>the air routes declared by 35 European countries, with passengers, seats and flights, 2016 to 2024 (38 files);</li>
-    <li>the monthly passengers of 496 European airports, January 2016 to 2026 (3 files);</li>
-    <li>a public registry of airports, for names and coordinates.</li>
+    <li><b>The network.</b> Europe had about 5,800 air routes in 2019, about 3,000 in 2020 (Covid), and more than
+    6,200 in 2024.</li>
+    <li><b>"One stop" is the key idea.</b> If Lisbon flies to Istanbul, and Istanbul flies to Tokyo, then Lisbon
+    reaches Tokyo with one stop. To find all such trips, the program matches every route's destination with every
+    other route's origin. That is the "join", and it produces 923,384 possible trips: the Big Data part.</li>
+    <li><b>The result.</b> Lisbon flies directly to 106 airports and reaches 562 with one stop (94% of the airports
+    in the data). Porto has fewer direct flights (77) but reaches almost as many (544).</li>
+    <li class="means"><b>What it means:</b> once you accept one stop, Porto is almost as well connected as Lisbon.
+    Of the places Lisbon cannot reach directly, 40% can be reached by changing planes in Istanbul.</li>
   </ul>
-
-  <h2>Solution</h2>
-  <p>One Databricks notebook organised in the <b>medallion architecture</b>: Bronze keeps the files as received
-  (Parquet), Silver has the clean tables and Gold the tables that answer the questions (Delta). It uses PySpark
-  DataFrames, Spark SQL, Structured Streaming and Unity Catalog.</p>
-  <ul>
-    <li><b>Parsing</b>: the Eurostat files are text, not tables. 42 files are read in two statements and turned into
-    rows with <code>split</code>, <code>posexplode</code> and <code>pivot</code>.</li>
-    <li><b>Graph as a join</b>: a journey with one stop is a join of the routes with themselves. About 6,000 routes
-    become 923,384 one-stop journeys, which is why Spark is used.</li>
-    <li><b>Streaming</b>: the months of 2025 and then of 2026 arrive as JSON files; a checkpoint makes the second
-    run read only the new files. The result is identical to a batch calculation.</li>
-  </ul>
-
-  <img src="figures/reach.png" alt="Airports reached directly and with one stop from the main Portuguese airports">
-  <p class="cap">Airports reached from the five main Portuguese airports in 2024, directly and within one stop.</p>
+  <img src="figures/reach.png" alt="Airports reached directly and with one stop from the main Portuguese airports" style="margin-top:6px">
+  <p class="cap">Airports reached from the five main Portuguese airports in 2024: directly (dark) and within one stop (light).</p>
 </div>
 
 <div class="col">
-  <h2>Findings</h2>
-  <table>
-    <tr><th>Question</th><th>Answer</th></tr>
-    <tr><td>Reach</td><td>Lisbon: 106 direct destinations, 562 within one stop (94% of the network). Porto: 77 direct,
-    91% within one stop. Funchal 79%, Faro 77%, Ponta Delgada 66%.</td></tr>
-    <tr><td>Main hub</td><td>Istanbul is a possible stop for 40% of the destinations that Lisbon cannot reach directly.</td></tr>
-    <tr><td>Demand</td><td>67.2 million passengers in 2025. Lisbon handles 49%, Porto 23%, Faro 14%. Funchal grew 68%
-    since 2019. Busiest route: Lisbon - Madrid, 1.91 million passengers.</td></tr>
-    <tr><td>Empty seats</td><td>Lisbon - Porto and Lisbon - Faro: about 72% of the seats occupied, 400,000 empty seats
-    per direction in a year.</td></tr>
-    <tr><td>Seasonality</td><td>Busiest against quietest month: Faro 4.4, Ponta Delgada 2.8, Porto 1.9, Funchal 1.7, Lisbon 1.5.</td></tr>
-    <tr><td>Trend</td><td>The European network lost 49% of its routes in 2020 and is now 8% above 2019. Portugal grew
-    5.0% in 2025 and 3.7% in January to April 2026.</td></tr>
-  </table>
-
-  <img src="figures/scenarios.png" alt="Passengers of Portugal per year and two scenarios to 2030" style="margin-top:5px">
-  <p class="cap">Air passengers of Portugal per year, with two simple scenarios: 86 to 91 million in 2030.</p>
-
-  <h2>Recommendations</h2>
+  <h2>Q2 - Demand: where are the passengers?</h2>
   <ul>
-    <li><b>Promote Porto, Faro and the islands by their one-stop reach</b>: 66% to 91% of the network.</li>
-    <li><b>Review the domestic air routes</b>, which fly with more than a quarter of their seats empty.</li>
-    <li><b>Fill the winter in Faro</b>; Lisbon, Porto and Funchal are stable all year.</li>
+    <li><b>The total.</b> Portugal had 67.2 million air passengers in 2025, 22% more than in 2019. Lisbon handles half
+    (36.1 million) and Porto a quarter (16.9 million).</li>
+    <li><b>Counting people once.</b> Someone flying Lisbon to Porto is counted at Lisbon and again at Porto, so domestic
+    passengers are divided by two.</li>
+    <li><b>Seasonality.</b> The busiest month's passengers divided by the quietest month's. Faro's 4.4 means July has
+    4.4 times more passengers than January; Lisbon's 1.5 means it is busy all year.</li>
+    <li><b>Seats occupied.</b> Most big routes fly 80-89% full, but Lisbon-Porto and Lisbon-Faro fly only about 72%
+    full: more than a quarter of their seats are empty.</li>
   </ul>
 
-  <h2>Limitations</h2>
-  <p>Route statistics end in 2024; only airport statistics reach 2026. The network is the European one. "One stop"
-  means that both routes existed in the same year: timetables and prices are not in the data. The scenarios are
-  reference lines, not a forecast.</p>
+  <h2>Q3 - Trend: how is it changing?</h2>
+  <ul>
+    <li><b>Streaming.</b> New monthly data arrives as files. The program reads 2025 first, then 2026, and the second
+    time it reads only the new files, because it keeps a record of what it has already read (the "checkpoint"). The
+    result is exactly the same as recalculating everything from scratch.</li>
+    <li><b>Growth.</b> About 5% a year in 2024 and 2025, and 3.7% in January-April 2026.</li>
+    <li><b>2030.</b> Line A keeps the 2025 growth rate; line B keeps the yearly increase of 2016-2019. They give 86 to
+    91 million passengers: simple reference lines, not a forecast.</li>
+  </ul>
+
+  <div class="conclusion">
+    <h2>Main conclusion</h2>
+    <p>Portugal's air traffic has fully recovered and keeps growing, but more slowly. Lisbon is the hub, yet the
+    regional airports are almost as well connected with one stop. The weak points are Faro's winter and the
+    half-empty domestic flights.</p>
+  </div>
+
+  <h2>Limits</h2>
+  <p>The data only covers routes that touch Europe, so "94%" means 94% of the airports connected to Europe, not of the
+  whole world. Route data ends in 2024; airport data reaches 2026. "One stop" means both routes existed that year:
+  there are no timetables or prices.</p>
 </div>
 </div>
 
 <p class="foot">Sources: Eurostat, datasets avia_par (routes) and avia_paoa (airports), downloaded on 16 November 2026;
-OurAirports (airport names and coordinates). All figures are computed by the notebook <i>ABD_Project_Portugal_Air_Connectivity</i>.</p>
+OurAirports (airport names and coordinates). All figures are computed by the notebook
+<i>ABD_Project_Portugal_Air_Connectivity</i>.</p>
 </body>
 </html>

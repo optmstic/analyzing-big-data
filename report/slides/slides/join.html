@@ -10,9 +10,10 @@
 <div class="leg"><x-connector style="width:200px; color:#C9CEC8; border-width:4px"></x-connector><p class="small">flight 2</p></div>
 <div class="airport"><p class="code-big">NRT</p><p class="airport-name">Tokyo Narita</p></div>
 </div>
-<div class="row anim" style="margin-top:72px; gap:96px; --i:2">
+<p class="meaning anim" style="margin-top:40px; --i:1">Lisbon flies to Istanbul, and Istanbul flies to Tokyo, so Lisbon reaches Tokyo with one stop. Matching every route’s destination with every other route’s origin is the join.</p>
+<div class="row anim" style="margin-top:48px; gap:96px; --i:2">
 <div class="stat"><p class="big">≈ 6,200</p><p class="txt">air routes in 2024</p></div>
 <div class="stat"><p class="big">923,384</p><p class="txt">one-stop journeys after the join: this is why the project uses Spark</p></div>
 </div>
-<aside>This is the central idea. The network is a graph, and a journey with one stop is a join of the routes with themselves: the destination of the first flight is the origin of the second. Lisbon has no direct flight to Tokyo, but Lisbon to Istanbul and Istanbul to Tokyo both exist. That join turns about 6,200 routes into more than 900,000 one-stop journeys, which is why I use Spark.</aside>
+<aside>This is the key idea, and the Big Data part. If Lisbon flies to Istanbul, and Istanbul flies to Tokyo, then Lisbon reaches Tokyo with one stop. To find all such trips, the program matches every route’s destination with every other route’s origin. That is the join, and it turns about 6,200 routes into 923,384 possible trips.</aside>
 </section>
